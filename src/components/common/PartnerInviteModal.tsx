@@ -73,27 +73,21 @@ export const PartnerInviteModal: React.FC = () => {
 
       updateProfile(updatePayload);
 
-      // 2. Broadcast acceptance to partner via cloudSync & Realtime Relay
-      const acceptPayload: any = {
-        type: 'PAIR_ACCEPT',
-        roomCode: inviteData.code,
-        senderId: cloudSync.getClientId(),
-        senderName: myName.trim(),
-        senderRole: myRole,
-        senderCode: inviteData.code,
-        timestamp: Date.now(),
-        data: {
-          profile: {
-            ...profile,
-            ...updatePayload
-          }
-        }
-      };
+      // 2. Push CONNECTED state to cloud room
+      const groom = myRole === 'groom' ? myName.trim() : (inviteData.groomName || profile.groomName || '신랑');
+      const bride = myRole === 'bride' ? myName.trim() : (inviteData.brideName || profile.brideName || '신부');
 
-      await Promise.all([
-        cloudSync.broadcast(acceptPayload),
-        realtimePairing.publish(acceptPayload)
-      ]);
+      await cloudSync.pushState({
+        roomCode: inviteData.code,
+        status: 'CONNECTED',
+        groomName: groom,
+        brideName: bride,
+        myRole: myRole,
+        weddingDate: inviteData.weddingDate || profile.weddingDate,
+        weddingVenue: inviteData.weddingVenue || profile.weddingVenue,
+        weddingHallName: inviteData.weddingHallName || profile.weddingHallName,
+        budgetGoal: inviteData.budgetGoal || profile.budgetGoal
+      });
 
       triggerConfetti();
       completeOnboarding();

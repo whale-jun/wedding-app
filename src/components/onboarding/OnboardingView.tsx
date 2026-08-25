@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { generateCoupleInviteCode } from '../../utils/codeGenerator';
 import { buildInviteUrl } from '../../utils/realtimePairing';
+import { cloudSync } from '../../utils/cloudSyncEngine';
 
 interface OnboardingViewProps {
   onComplete: () => void;
@@ -93,11 +94,25 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) =>
         myRole: 'groom',
         inviteCode: codeToUse
       });
+      cloudSync.connectRoom(codeToUse);
+      cloudSync.pushState({
+        roomCode: codeToUse,
+        status: 'WAITING',
+        groomName: name.trim(),
+        myRole: 'groom'
+      });
     } else {
       updateProfile({
         brideName: name.trim(),
         myRole: 'bride',
         inviteCode: codeToUse
+      });
+      cloudSync.connectRoom(codeToUse);
+      cloudSync.pushState({
+        roomCode: codeToUse,
+        status: 'WAITING',
+        brideName: name.trim(),
+        myRole: 'bride'
       });
     }
 

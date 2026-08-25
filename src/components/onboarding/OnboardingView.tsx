@@ -89,6 +89,14 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) =>
     }
   }, []);
 
+  // AUTO ADVANCE: When partner accepts invite and connects, automatically enter main screen!
+  useEffect(() => {
+    if (profile.isPartnerConnected) {
+      triggerConfetti();
+      onComplete();
+    }
+  }, [profile.isPartnerConnected, onComplete, triggerConfetti]);
+
   // Handle Step 1 Submission
   const handleProfileSubmit = (e: React.FormEvent) => {
     e.preventDefault();

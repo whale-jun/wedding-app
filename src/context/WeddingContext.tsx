@@ -303,6 +303,9 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }));
         setWeddingId(activeSyncRoom);
         setLastSyncedAt(new Date().toISOString());
+        setIsOnboardingDone(true);
+        localStorage.setItem('wedding_app_onboarding_done_v1', 'true');
+        setIsProfileModalOpen(false);
 
         // Respond with PAIR_ACCEPT containing our full latest data
         const myName = profile.myRole === 'groom' ? (profile.groomName || '신랑') : (profile.brideName || '신부');
@@ -375,8 +378,11 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         setWeddingId(activeSyncRoom);
         setLastSyncedAt(new Date().toISOString());
+        setIsOnboardingDone(true);
+        localStorage.setItem('wedding_app_onboarding_done_v1', 'true');
+        setIsProfileModalOpen(false);
         triggerConfetti();
-        alert(`🎉 축하합니다! 상대방(${partnerName}님)과 성공적으로 커플 연결되었습니다!\n모든 일정과 예산이 실시간으로 동기화됩니다.`);
+        alert(`🎉 축하합니다! 상대방(${partnerName}님)과 성공적으로 커플 연결되었습니다!\n모든 일정과 예산이 실시간으로 동기화됩니다. 💕`);
         setTimeout(() => setIsRemoteUpdate(false), 300);
       }
 

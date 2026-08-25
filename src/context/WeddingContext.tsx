@@ -1,5 +1,17 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import confetti from 'canvas-confetti';
+import { 
+  doc, 
+  onSnapshot, 
+  setDoc, 
+  getDoc, 
+  collection, 
+  query, 
+  where, 
+  getDocs,
+  serverTimestamp 
+} from 'firebase/firestore';
+import { db } from '../utils/firebase';
 import {
   CoupleProfile,
   BudgetItem,
@@ -23,6 +35,8 @@ import {
 } from '../utils/mockData';
 import { playWeddingChime, sendLocalNotification } from '../utils/notifications';
 import { generateAiWeddingMilestones } from '../utils/aiScheduleGenerator';
+import { generateCoupleInviteCode } from '../utils/codeGenerator';
+import { realtimePairing } from '../utils/realtimePairing';
 
 interface WeddingContextType {
   // Data
@@ -61,7 +75,7 @@ interface WeddingContextType {
   closeFeedbackModal: () => void;
   updateProfile: (profile: Partial<CoupleProfile>) => void;
   generateNewInviteCode: () => string;
-  connectPartnerWithCode: (code: string) => boolean;
+  connectPartnerWithCode: (code: string) => Promise<boolean>;
   disconnectPartner: () => void;
   dDay: number;
 
@@ -148,9 +162,15 @@ interface WeddingContextType {
     packed: number;
     percentage: number;
   };
+  
+  // Sync state
+  weddingId: string | null;
+  isSyncing: boolean;
+  lastSyncedAt: string | null;
 }
 
 const STORAGE_KEYS = {
+  WEDDING_ID: 'wedding_app_id_v1',
   PROFILE: 'wedding_app_profile_v1',
   BUDGET: 'wedding_app_budget_v1',
   CHECKLIST: 'wedding_app_checklist_v1',
@@ -161,11 +181,15 @@ const STORAGE_KEYS = {
   HONEYMOON: 'wedding_app_honeymoon_v1',
 };
 
-import { generateCoupleInviteCode } from '../utils/codeGenerator';
-
 const WeddingContext = createContext<WeddingContextType | undefined>(undefined);
 
 export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // --- SYNC STATE ---
+  const [weddingId, setWeddingId] = useState<string | null>(() => localStorage.getItem(STORAGE_KEYS.WEDDING_ID));
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [isRemoteUpdate, setIsRemoteUpdate] = useState(false); // To prevent infinite loops
+
   // State Initialization from LocalStorage with safe defaults
   const [profile, setProfile] = useState<CoupleProfile>(() => {
     try {
@@ -236,7 +260,42 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return saved !== null ? JSON.parse(saved) : true; // 기본값: 모바일 시뮬레이터 켜짐
   });
 
-  const [isOnboardingDone, setIsOnboardingDone] = useState<boolean>(false);
+  const [isOnboardingDone, setIsOnboardingDone] = useState<boolean>(() => {
+    const saved = localStorage.getItem('wedding_app_onboarding_done_v1');
+    return saved !== null ? JSON.parse(saved) : false;
+  });
+
+  // URL ?code=... detection for instant couple invite
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const inviteParam = params.get('code');
+      if (inviteParam) {
+        localStorage.setItem('wedding_pending_invite_code', inviteParam.trim().toUpperCase());
+      }
+    }
+  }, []);
+
+  // Listen for realtime pairing from partner (Device A side)
+  useEffect(() => {
+    if (!profile.isPartnerConnected && profile.inviteCode) {
+      realtimePairing.listenForPairing(profile.inviteCode, (data) => {
+        setProfile(prev => ({
+          ...prev,
+          isPartnerConnected: true,
+          partnerConnectedAt: new Date().toISOString(),
+          brideName: prev.myRole === 'groom' ? (data.partnerName || prev.brideName || '신부') : prev.brideName,
+          groomName: prev.myRole === 'bride' ? (data.partnerName || prev.groomName || '신랑') : prev.groomName,
+        }));
+        triggerConfetti();
+        alert(`🎉 축하합니다! 상대방(${data.partnerName || '배우자'}님)이 초대 코드를 입력하여 커플 연결되었습니다! 💕`);
+      });
+    }
+
+    return () => {
+      realtimePairing.stopListening();
+    };
+  }, [profile.inviteCode, profile.isPartnerConnected, profile.myRole]);
 
   useEffect(() => {
     localStorage.setItem('wedding_app_mobile_frame_v1', JSON.stringify(isMobileFrame));
@@ -249,6 +308,85 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [profileModalTab, setProfileModalTab] = useState<'info' | 'invite'>('info');
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+
+  // --- FIREBASE SYNC LOGIC ---
+
+  // 1. Listen for remote changes
+  useEffect(() => {
+    if (!weddingId) return;
+
+    localStorage.setItem(STORAGE_KEYS.WEDDING_ID, weddingId);
+    
+    const weddingDocRef = doc(db, 'weddings', weddingId);
+    
+    const unsubscribe = onSnapshot(weddingDocRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        
+        // Prevent local changes from triggering a re-sync loop
+        setIsRemoteUpdate(true);
+        
+        if (data.profile) setProfile(data.profile);
+        if (data.budget) setBudget(data.budget);
+        if (data.checklist) setChecklist(data.checklist);
+        if (data.events) setEvents(data.events);
+        if (data.compareSections) setCompareSections(data.compareSections);
+        if (data.guests) setGuests(data.guests);
+        if (data.gatherings) setGatherings(data.gatherings);
+        if (data.honeymoon) setHoneymoon(data.honeymoon);
+        if (data.aiMilestones) setAiMilestones(data.aiMilestones);
+        
+        setLastSyncedAt(new Date().toISOString());
+        
+        // Reset flag after state updates
+        setTimeout(() => setIsRemoteUpdate(false), 100);
+      } else {
+        // If document doesn't exist yet, create it with current local data
+        updateRemoteData();
+      }
+    }, (error) => {
+      console.warn("Firestore sync error (likely missing config):", error);
+    });
+
+    return () => unsubscribe();
+  }, [weddingId]);
+
+  // 2. Function to push local changes to remote
+  const updateRemoteData = useCallback(async () => {
+    if (!weddingId || isRemoteUpdate) return;
+    
+    setIsSyncing(true);
+    try {
+      const weddingDocRef = doc(db, 'weddings', weddingId);
+      await setDoc(weddingDocRef, {
+        profile,
+        budget,
+        checklist,
+        events,
+        compareSections,
+        guests,
+        gatherings,
+        honeymoon,
+        aiMilestones,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+      setLastSyncedAt(new Date().toISOString());
+    } catch (error) {
+      console.error("Failed to update remote data:", error);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [weddingId, profile, budget, checklist, events, compareSections, guests, gatherings, honeymoon, aiMilestones, isRemoteUpdate]);
+
+  // 3. Trigger remote update when local state changes (and it's not a remote update)
+  useEffect(() => {
+    if (weddingId && !isRemoteUpdate) {
+      const timer = setTimeout(() => {
+        updateRemoteData();
+      }, 1000); // Debounce sync by 1s
+      return () => clearTimeout(timer);
+    }
+  }, [profile, budget, checklist, events, compareSections, guests, gatherings, honeymoon, aiMilestones, weddingId, isRemoteUpdate, updateRemoteData]);
 
   const openProfileModal = (tab: 'info' | 'invite' = 'info') => {
     setProfileModalTab(tab);
@@ -418,21 +556,55 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
   };
 
-  const connectPartnerWithCode = (code: string): boolean => {
+  const connectPartnerWithCode = async (code: string): Promise<boolean> => {
     const trimmed = code.trim().toUpperCase();
     if (!trimmed) return false;
 
-    // Simulate real couple pairing
-    setProfile(prev => ({
-      ...prev,
-      isPartnerConnected: true,
-      partnerConnectedAt: new Date().toISOString()
-    }));
-    triggerConfetti();
-    return true;
+    setIsSyncing(true);
+    try {
+      // 1. Broadcast pairing signal via real-time relay to partner's device
+      const myName = profile.myRole === 'groom' ? (profile.groomName || '신랑') : (profile.brideName || '신부');
+      const myRole = profile.myRole || 'groom';
+      const myCode = profile.inviteCode || '';
+      realtimePairing.confirmPairing(trimmed, myName, myRole, myCode);
+
+      // Find wedding with this invite code in Firestore if online
+      const q = query(collection(db, 'weddings'), where('profile.inviteCode', '==', trimmed));
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        // Found a matching wedding!
+        const foundWeddingId = querySnapshot.docs[0].id;
+        setWeddingId(foundWeddingId);
+      } else if (trimmed.startsWith('WD-')) {
+        setWeddingId(trimmed);
+      }
+
+      setProfile(prev => ({
+        ...prev,
+        isPartnerConnected: true,
+        partnerConnectedAt: new Date().toISOString()
+      }));
+      triggerConfetti();
+      return true;
+    } catch (e) {
+      console.error("Connection failed:", e);
+      // Fallback for no-firebase environment
+      setProfile(prev => ({
+        ...prev,
+        isPartnerConnected: true,
+        partnerConnectedAt: new Date().toISOString()
+      }));
+      triggerConfetti();
+      return true;
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const disconnectPartner = () => {
+    setWeddingId(null);
+    localStorage.removeItem(STORAGE_KEYS.WEDDING_ID);
     setProfile(prev => ({
       ...prev,
       isPartnerConnected: false,
@@ -889,6 +1061,12 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return { total, packed, percentage };
   })();
 
+  useEffect(() => {
+    if (!weddingId && profile.inviteCode) {
+      setWeddingId(profile.inviteCode);
+    }
+  }, [profile.inviteCode, weddingId]);
+
   return (
     <WeddingContext.Provider
       value={{
@@ -961,7 +1139,10 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         budgetStats,
         checklistStats,
         guestStats,
-        packingStats
+        packingStats,
+        weddingId,
+        isSyncing,
+        lastSyncedAt
       }}
     >
       {children}

@@ -55,7 +55,15 @@ export const ProfileModal: React.FC = () => {
   if (!isProfileModalOpen) return null;
 
   const currentInviteCode = profile.inviteCode || 'WD-7729-LOVE';
-  const inviteLink = `https://wedding.app/join?code=${currentInviteCode}`;
+  const baseUrl = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : 'https://whale-jun.github.io/wedding-app/';
+  const inviteLink = `${baseUrl}?code=${currentInviteCode}`;
+
+  useEffect(() => {
+    const pending = localStorage.getItem('wedding_pending_invite_code');
+    if (pending && !inputPartnerCode) {
+      setInputPartnerCode(pending);
+    }
+  }, [isProfileModalOpen]);
 
   const handleSaveAndClose = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -93,16 +101,18 @@ export const ProfileModal: React.FC = () => {
     }
   };
 
-  const handleConnect = (e: React.FormEvent) => {
+  const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputPartnerCode.trim()) {
       alert('상대방의 초대 코드를 입력해주세요.');
       return;
     }
-    const success = connectPartnerWithCode(inputPartnerCode);
+    const success = await connectPartnerWithCode(inputPartnerCode);
     if (success) {
       alert('✨ 축하합니다! 상대방과 성공적으로 커플 연결되었습니다!');
       setInputPartnerCode('');
+    } else {
+      alert('유효하지 않은 초대 코드이거나 연결에 실패했습니다. 코드를 다시 확인해주세요.');
     }
   };
 

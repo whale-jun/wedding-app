@@ -68,9 +68,18 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) =>
     };
   }, []);
 
-  // Safe active invite code
+  // Safe active invite code & Dynamic Real URL for GitHub Pages / PWA
   const currentInviteCode = profile.inviteCode || 'WD-7729-LOVE';
-  const inviteLink = `https://wedding.app/join?code=${currentInviteCode}`;
+  const baseUrl = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : 'https://whale-jun.github.io/wedding-app/';
+  const inviteLink = `${baseUrl}?code=${currentInviteCode}`;
+
+  // Auto-fill pending invite code from URL parameter
+  useEffect(() => {
+    const pending = localStorage.getItem('wedding_pending_invite_code');
+    if (pending) {
+      setPartnerCodeInput(pending);
+    }
+  }, []);
 
   // Handle Step 1 Submission
   const handleProfileSubmit = (e: React.FormEvent) => {

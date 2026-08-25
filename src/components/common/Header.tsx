@@ -12,7 +12,10 @@ import {
   Sparkles,
   Users,
   UserPlus,
-  MessageSquareHeart
+  MessageSquareHeart,
+  Cloud,
+  CloudOff,
+  RefreshCw
 } from 'lucide-react';
 import { requestNotificationPermission } from '../../utils/notifications';
 
@@ -25,7 +28,9 @@ export const Header: React.FC = () => {
     resetToSampleData,
     resetOnboarding,
     openProfileModal,
-    openFeedbackModal
+    openFeedbackModal,
+    isSyncing,
+    lastSyncedAt
   } = useWedding();
   
   const [hasNotification, setHasNotification] = useState(() => {
@@ -92,6 +97,27 @@ export const Header: React.FC = () => {
                   <span className={`w-1.5 h-1.5 rounded-full ${profile.isPartnerConnected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
                   <span>{profile.isPartnerConnected ? '연결됨' : '상대초대+'}</span>
                 </button>
+
+                {/* Cloud Sync Status */}
+                <div 
+                  className={`flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-md border font-medium ${
+                    isSyncing 
+                      ? 'text-sky-600 bg-sky-50 border-sky-100' 
+                      : 'text-slate-400 bg-slate-50 border-slate-100'
+                  }`}
+                  title={lastSyncedAt ? `마지막 동기화: ${new Date(lastSyncedAt).toLocaleTimeString()}` : '서버 연결 중...'}
+                >
+                  {isSyncing ? (
+                    <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                  ) : lastSyncedAt ? (
+                    <Cloud className="w-2.5 h-2.5" />
+                  ) : (
+                    <CloudOff className="w-2.5 h-2.5" />
+                  )}
+                  <span className="hidden xs:inline">
+                    {isSyncing ? '동기화 중' : '동기화됨'}
+                  </span>
+                </div>
               </div>
 
               <div className="flex items-center space-x-1 text-[11px] text-slate-500 font-medium truncate">

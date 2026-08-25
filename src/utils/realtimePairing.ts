@@ -1,171 +1,315 @@
 /**
- * Realtime Couple Pairing Engine
- * Allows real-time pairing between two mobile devices / browsers without requiring paid backend servers.
- * Uses a hybrid approach:
- * 1. BroadcastChannel (for same device / multi-tab sync)
- * 2. Lightweight Serverless Realtime Sync (via public secure WebSocket relay & LocalStorage polling)
+ * Robust Realtime Couple Pairing & Sync Engine
+ * Enables 100% serverless, zero-config real-time pairing & data sync between two mobile devices / browsers.
+ * 
+ * Channels:
+ * 1. ntfy.sh Public WebSocket & REST Pub/Sub (Fast, reliable cross-device real-time relay)
+ * 2. BroadcastChannel (Same-device multi-tab / window sync)
+ * 3. LocalStorage Event (Fallback for same-origin tabs)
  */
 
-type PairCallback = (data: { partnerName: string; partnerRole: string; partnerCode: string }) => void;
+export interface PairingPayload {
+  type: 'PAIR_REQUEST' | 'PAIR_ACCEPT' | 'SYNC_DATA' | 'PING' | 'PONG' | 'DISCONNECT';
+  roomCode: string;
+  senderId: string;
+  senderName: string;
+  senderRole: 'groom' | 'bride';
+  senderCode: string;
+  timestamp: number;
+  data?: any; // Full or partial wedding data
+}
+
+type MessageCallback = (payload: PairingPayload) => void;
 
 class RealtimePairingManager {
-  private activeCode: string | null = null;
-  private onPairedCallback: PairCallback | null = null;
+  private activeRoom: string | null = null;
+  private myClientId: string;
   private ws: WebSocket | null = null;
-  private pollInterval: any = null;
   private broadcastChannel: BroadcastChannel | null = null;
+  private messageListeners: Set<MessageCallback> = new Set();
+  private reconnectTimer: any = null;
+  private pingInterval: any = null;
+  private isDestroyed = false;
 
   constructor() {
-    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-      try {
-        this.broadcastChannel = new BroadcastChannel('wedding_app_pair_channel');
-        this.broadcastChannel.onmessage = (event) => {
-          this.handleIncomingSignal(event.data);
-        };
-      } catch (e) {
-        console.warn('BroadcastChannel not supported', e);
+    this.myClientId = typeof window !== 'undefined'
+      ? (localStorage.getItem('wedding_client_id') || `client_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`)
+      : `client_${Date.now()}`;
+    
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('wedding_client_id', this.myClientId);
+      
+      // 1. Setup BroadcastChannel for same-device multi-tabs
+      if ('BroadcastChannel' in window) {
+        try {
+          this.broadcastChannel = new BroadcastChannel('wedding_app_realtime_channel');
+          this.broadcastChannel.onmessage = (event) => {
+            this.handleIncomingRaw(event.data);
+          };
+        } catch (e) {
+          console.warn('BroadcastChannel not supported', e);
+        }
       }
+
+      // 2. Storage event fallback
+      window.addEventListener('storage', (e) => {
+        if (e.key === 'wedding_app_relay_event' && e.newValue) {
+          try {
+            const parsed = JSON.parse(e.newValue);
+            this.handleIncomingRaw(parsed);
+          } catch (err) {}
+        }
+      });
     }
   }
 
-  /**
-   * Start listening for incoming pairing on a specific invite code (Device A - Code Generator)
-   */
-  public listenForPairing(myCode: string, onPaired: PairCallback) {
-    this.activeCode = myCode.trim().toUpperCase();
-    this.onPairedCallback = onPaired;
-
-    // 1. Check if already paired in local cache or shared registry
-    this.checkSharedRegistry(this.activeCode);
-
-    // 2. Connect to lightweight public WebSocket echo relay for cross-device real-time sync
-    this.connectRelay(this.activeCode);
-
-    // 3. Fallback polling for shared registry
-    if (this.pollInterval) clearInterval(this.pollInterval);
-    this.pollInterval = setInterval(() => {
-      if (this.activeCode) {
-        this.checkSharedRegistry(this.activeCode);
-      }
-    }, 2500);
+  public getClientId(): string {
+    return this.myClientId;
   }
 
   /**
-   * Broadcast pairing confirmation to Device A (Device B - Code Enterer)
+   * Start listening on a specific room code (invite code)
    */
-  public confirmPairing(targetCode: string, myName: string, myRole: string, myCode: string) {
-    const formattedCode = targetCode.trim().toUpperCase();
-    const payload = {
-      type: 'PAIR_SUCCESS',
-      targetCode: formattedCode,
-      partnerName: myName,
-      partnerRole: myRole,
-      partnerCode: myCode,
-      timestamp: Date.now()
-    };
+  public joinRoom(roomCode: string, onMessage?: MessageCallback) {
+    const formatted = roomCode.trim().toUpperCase();
+    if (!formatted) return;
 
-    // 1. Broadcast to local tabs/windows
-    if (this.broadcastChannel) {
-      this.broadcastChannel.postMessage(payload);
+    if (onMessage) {
+      this.messageListeners.add(onMessage);
     }
 
-    // 2. Broadcast to cross-device WebSocket relay
-    this.sendRelayMessage(formattedCode, payload);
+    if (this.activeRoom === formatted && this.ws && this.ws.readyState === WebSocket.OPEN) {
+      return; // Already joined and connected
+    }
 
-    // 3. Save to shared remote registry (via fast KV echo)
-    this.saveToSharedRegistry(formattedCode, payload);
-  }
+    this.activeRoom = formatted;
+    this.isDestroyed = false;
+    this.connectWebSocket(formatted);
 
-  private handleIncomingSignal(data: any) {
-    if (!data || data.type !== 'PAIR_SUCCESS') return;
-    if (this.activeCode && data.targetCode === this.activeCode) {
-      if (this.onPairedCallback) {
-        this.onPairedCallback({
-          partnerName: data.partnerName,
-          partnerRole: data.partnerRole,
-          partnerCode: data.partnerCode || ''
+    // Setup periodic ping to keep socket alive and notify presence
+    if (this.pingInterval) clearInterval(this.pingInterval);
+    this.pingInterval = setInterval(() => {
+      if (this.activeRoom) {
+        this.publish({
+          type: 'PING',
+          roomCode: this.activeRoom,
+          senderId: this.myClientId,
+          senderName: '',
+          senderRole: 'groom',
+          senderCode: this.activeRoom,
+          timestamp: Date.now()
         });
       }
-    }
+    }, 25000);
   }
 
-  private connectRelay(code: string) {
+  public addListener(cb: MessageCallback) {
+    this.messageListeners.add(cb);
+    return () => {
+      this.messageListeners.delete(cb);
+    };
+  }
+
+  public removeListener(cb: MessageCallback) {
+    this.messageListeners.delete(cb);
+  }
+
+  /**
+   * Connect to public ntfy.sh WebSocket endpoint
+   */
+  private connectWebSocket(roomCode: string) {
+    if (this.isDestroyed || typeof window === 'undefined') return;
+
     try {
       if (this.ws) {
+        this.ws.onclose = null;
+        this.ws.onerror = null;
+        this.ws.onmessage = null;
         this.ws.close();
+        this.ws = null;
       }
-      // Public secure WebSocket echo broker for instant signaling
-      const brokerUrl = `wss://echo.websocket.events/.ws`;
-      this.ws = new WebSocket(brokerUrl);
-      
+
+      // Format clean topic name (alphanumeric and underscores)
+      const sanitizedTopic = `wedding_sync_${roomCode.replace(/[^A-Z0-9]/gi, '_').toLowerCase()}`;
+      const wsUrl = `wss://ntfy.sh/${sanitizedTopic}/ws`;
+
+      this.ws = new WebSocket(wsUrl);
+
       this.ws.onopen = () => {
-        // Register room
-        this.ws?.send(JSON.stringify({ action: 'join', room: `wedding_${code}` }));
+        // Connected!
       };
 
       this.ws.onmessage = (event) => {
         try {
-          const parsed = JSON.parse(event.data);
-          this.handleIncomingSignal(parsed);
+          const raw = JSON.parse(event.data);
+          // ntfy.sh sends messages in { event: 'message', message: '...', ... } format
+          if (raw.event === 'message' && raw.message) {
+            try {
+              const payload: PairingPayload = JSON.parse(raw.message);
+              this.handleIncomingRaw(payload);
+            } catch (e) {
+              // Message is not JSON, ignore
+            }
+          }
         } catch (e) {
-          // ignore non-json
+          // non-json frame
         }
       };
-    } catch (err) {
-      console.warn('Realtime relay fallback to registry polling', err);
-    }
-  }
 
-  private sendRelayMessage(code: string, payload: any) {
-    try {
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify(payload));
-      } else {
-        // Try temporary socket
-        const tempWs = new WebSocket(`wss://echo.websocket.events/.ws`);
-        tempWs.onopen = () => {
-          tempWs.send(JSON.stringify(payload));
-          setTimeout(() => tempWs.close(), 1500);
-        };
-      }
+      this.ws.onerror = (err) => {
+        console.warn('Realtime WS error, falling back to HTTP sync', err);
+      };
+
+      this.ws.onclose = () => {
+        if (!this.isDestroyed && this.activeRoom) {
+          // Reconnect with backoff
+          if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = setTimeout(() => {
+            if (this.activeRoom && !this.isDestroyed) {
+              this.connectWebSocket(this.activeRoom);
+            }
+          }, 3000);
+        }
+      };
     } catch (e) {
-      console.warn('Failed to send relay msg', e);
+      console.warn('Failed to initialize WebSocket', e);
     }
   }
 
-  private async saveToSharedRegistry(code: string, payload: any) {
-    try {
-      // Local storage fallback
-      localStorage.setItem(`wedding_pair_confirmed_${code}`, JSON.stringify(payload));
-
-      // Public fast key-value store for cross-device sharing (CountAPI / KeyValue API)
-      await fetch(`https://api.counterapi.dev/v1/wedding_app_pair_${code}/set?value=1`, {
-        mode: 'no-cors'
-      }).catch(() => {});
-    } catch (e) {
-      // ignore network errors
+  /**
+   * Publish payload across all available channels (ntfy REST, BroadcastChannel, LocalStorage)
+   */
+  public async publish(payload: PairingPayload) {
+    // 1. BroadcastChannel (Same browser tabs)
+    if (this.broadcastChannel) {
+      try {
+        this.broadcastChannel.postMessage(payload);
+      } catch (e) {}
     }
-  }
 
-  private checkSharedRegistry(code: string) {
+    // 2. LocalStorage Event (Same origin fallback)
     try {
-      const saved = localStorage.getItem(`wedding_pair_confirmed_${code}`);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        this.handleIncomingSignal(parsed);
-      }
+      localStorage.setItem('wedding_app_relay_event', JSON.stringify({
+        ...payload,
+        _rnd: Math.random()
+      }));
     } catch (e) {}
+
+    // 3. ntfy.sh HTTP POST Publish (Delivers to all connected WebSockets cross-device worldwide)
+    const topic = `wedding_sync_${payload.roomCode.replace(/[^A-Z0-9]/gi, '_').toLowerCase()}`;
+    try {
+      await fetch(`https://ntfy.sh/${topic}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain',
+          'Title': 'WeddingAppSync',
+          'Priority': 'urgent'
+        },
+        body: JSON.stringify(payload)
+      });
+    } catch (err) {
+      console.warn('ntfy HTTP POST failed:', err);
+    }
   }
 
-  public stopListening() {
-    if (this.pollInterval) clearInterval(this.pollInterval);
+  /**
+   * Handle incoming raw message and notify listeners
+   */
+  private handleIncomingRaw(payload: PairingPayload) {
+    if (!payload || !payload.roomCode || !payload.type) return;
+
+    // Ignore messages sent by ourselves
+    if (payload.senderId === this.myClientId) {
+      return;
+    }
+
+    // Check if room matches
+    if (this.activeRoom && payload.roomCode.toUpperCase() !== this.activeRoom.toUpperCase()) {
+      return;
+    }
+
+    // Dispatch to listeners
+    this.messageListeners.forEach((listener) => {
+      try {
+        listener(payload);
+      } catch (err) {
+        console.error('Error in message listener:', err);
+      }
+    });
+  }
+
+  /**
+   * Disconnect and clean up
+   */
+  public leaveRoom() {
+    this.isDestroyed = true;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.pingInterval) clearInterval(this.pingInterval);
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
-    this.activeCode = null;
-    this.onPairedCallback = null;
+    this.activeRoom = null;
+    this.messageListeners.clear();
   }
 }
 
 export const realtimePairing = new RealtimePairingManager();
+
+/**
+ * Generate a smart shareable URL containing invitation code & compressed basic profile
+ */
+export function buildInviteUrl(params: {
+  code: string;
+  groomName?: string;
+  brideName?: string;
+  myRole?: 'groom' | 'bride';
+  weddingDate?: string;
+  weddingVenue?: string;
+  budgetGoal?: number;
+}): string {
+  const origin = typeof window !== 'undefined' 
+    ? `${window.location.origin}${window.location.pathname}` 
+    : 'https://whale-jun.github.io/wedding-app/';
+
+  const searchParams = new URLSearchParams();
+  searchParams.set('code', params.code.trim().toUpperCase());
+  
+  if (params.myRole) searchParams.set('role', params.myRole);
+  if (params.groomName) searchParams.set('groom', params.groomName);
+  if (params.brideName) searchParams.set('bride', params.brideName);
+  if (params.weddingDate) searchParams.set('date', params.weddingDate);
+  if (params.weddingVenue) searchParams.set('venue', params.weddingVenue);
+  if (params.budgetGoal) searchParams.set('budget', String(params.budgetGoal));
+
+  return `${origin}?${searchParams.toString()}`;
+}
+
+/**
+ * Parse invite details from window.location.search
+ */
+export function parseInviteFromUrl(): {
+  code: string | null;
+  role: 'groom' | 'bride' | null;
+  groomName: string | null;
+  brideName: string | null;
+  weddingDate: string | null;
+  weddingVenue: string | null;
+  budgetGoal: number | null;
+} | null {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+
+  if (!code) return null;
+
+  return {
+    code: code.trim().toUpperCase(),
+    role: (params.get('role') as 'groom' | 'bride') || null,
+    groomName: params.get('groom'),
+    brideName: params.get('bride'),
+    weddingDate: params.get('date'),
+    weddingVenue: params.get('venue'),
+    budgetGoal: params.get('budget') ? Number(params.get('budget')) : null
+  };
+}

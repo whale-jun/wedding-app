@@ -14,8 +14,7 @@ import {
   X,
   Settings,
   Sparkles,
-  ChevronRight,
-  MessageSquareHeart
+  ChevronRight
 } from 'lucide-react';
 
 interface TabItem {
@@ -34,8 +33,7 @@ export const Navigation: React.FC = () => {
     checklistStats, 
     guestStats, 
     aiMilestones, 
-    openProfileModal,
-    openFeedbackModal
+    openProfileModal
   } = useWedding();
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
 
@@ -239,18 +237,7 @@ export const Navigation: React.FC = () => {
             </div>
 
             {/* Action Buttons */}
-            <div className="pt-2 border-t border-slate-100 space-y-2">
-              <button
-                onClick={() => {
-                  setIsMoreMenuOpen(false);
-                  openFeedbackModal();
-                }}
-                className="w-full p-3 bg-gradient-to-r from-pink-500 to-rose-500 text-white rounded-2xl text-xs font-bold flex items-center justify-center gap-2 shadow transition hover:opacity-95"
-              >
-                <MessageSquareHeart className="w-4 h-4" />
-                <span>지인 사용 의견 & 피드백 보내기 💬</span>
-              </button>
-
+            <div className="pt-2 border-t border-slate-100">
               <button
                 onClick={() => {
                   setIsMoreMenuOpen(false);

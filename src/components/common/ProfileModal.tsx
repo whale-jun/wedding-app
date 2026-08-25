@@ -21,6 +21,8 @@ import {
   CheckCircle2
 } from 'lucide-react';
 
+import { buildInviteUrl } from '../../utils/realtimePairing';
+
 export const ProfileModal: React.FC = () => {
   const { 
     profile, 
@@ -39,6 +41,7 @@ export const ProfileModal: React.FC = () => {
   const [inputPartnerCode, setInputPartnerCode] = useState('');
   const [isCopied, setIsCopied] = useState(false);
   const [isLinkCopied, setIsLinkCopied] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
 
   // Sync formData and activeSubTab whenever modal opens
   useEffect(() => {
@@ -55,8 +58,15 @@ export const ProfileModal: React.FC = () => {
   if (!isProfileModalOpen) return null;
 
   const currentInviteCode = profile.inviteCode || 'WD-7729-LOVE';
-  const baseUrl = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : 'https://whale-jun.github.io/wedding-app/';
-  const inviteLink = `${baseUrl}?code=${currentInviteCode}`;
+  const inviteLink = buildInviteUrl({
+    code: currentInviteCode,
+    myRole: profile.myRole,
+    groomName: profile.groomName,
+    brideName: profile.brideName,
+    weddingDate: profile.weddingDate,
+    weddingVenue: profile.weddingVenue,
+    budgetGoal: profile.budgetGoal
+  });
 
   useEffect(() => {
     const pending = localStorage.getItem('wedding_pending_invite_code');
@@ -85,11 +95,13 @@ export const ProfileModal: React.FC = () => {
   };
 
   const handleShare = async () => {
+    const senderName = profile.myRole === 'groom' ? (profile.groomName || '신랑') : (profile.brideName || '신부');
+    const shareText = `[으ㅔ딩어픙] ${senderName}님이 결혼 준비에 초대했습니다! 💕\n초대코드: ${currentInviteCode}\n아래 링크를 눌러 실시간으로 함께 결혼을 준비해보세요:\n${inviteLink}`;
     if (navigator.share) {
       try {
         await navigator.share({
           title: '으ㅔ딩어픙 커플 초대장',
-          text: `[으ㅔ딩어픙] ${profile.myRole === 'groom' ? profile.groomName : profile.brideName}님이 결혼 준비에 초대했습니다! 초대코드: ${currentInviteCode}`,
+          text: shareText,
           url: inviteLink,
         });
       } catch (err) {
@@ -97,7 +109,7 @@ export const ProfileModal: React.FC = () => {
       }
     } else {
       handleCopyLink();
-      alert('초대 링크가 클립보드에 복사되었습니다! 카카오톡이나 문자로 전달해주세요. 💌');
+      alert('초대 링크가 클립보드에 복사되었습니다! 카카오톡이나 문자로 상대방에게 전달해주세요. 💌');
     }
   };
 
@@ -107,12 +119,17 @@ export const ProfileModal: React.FC = () => {
       alert('상대방의 초대 코드를 입력해주세요.');
       return;
     }
-    const success = await connectPartnerWithCode(inputPartnerCode);
-    if (success) {
-      alert('✨ 축하합니다! 상대방과 성공적으로 커플 연결되었습니다!');
-      setInputPartnerCode('');
-    } else {
-      alert('유효하지 않은 초대 코드이거나 연결에 실패했습니다. 코드를 다시 확인해주세요.');
+    setIsConnecting(true);
+    try {
+      const success = await connectPartnerWithCode(inputPartnerCode);
+      if (success) {
+        alert('✨ 축하합니다! 상대방과 성공적으로 커플 연결되었습니다!\n지금부터 모든 데이터가 실시간으로 동기화됩니다.');
+        setInputPartnerCode('');
+      } else {
+        alert('유효하지 않은 초대 코드이거나 연결에 실패했습니다. 코드를 다시 확인해주세요.');
+      }
+    } finally {
+      setIsConnecting(false);
     }
   };
 

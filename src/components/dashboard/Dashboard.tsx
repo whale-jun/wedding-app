@@ -17,7 +17,6 @@ import {
   Gift,
   CheckCircle2,
   ChevronRight,
-  MessageSquareHeart,
   Share2
 } from 'lucide-react';
 
@@ -33,8 +32,7 @@ export const Dashboard: React.FC = () => {
     checklist,
     setActiveTab,
     triggerConfetti,
-    openProfileModal,
-    openFeedbackModal
+    openProfileModal
   } = useWedding();
 
   // D-Day live countdown timer (seconds)
@@ -186,42 +184,6 @@ export const Dashboard: React.FC = () => {
           </button>
         </div>
       )}
-
-      {/* Friends & Beta Tester Feedback Card */}
-      <div 
-        onClick={openFeedbackModal}
-        className="glass-card glass-card-hover rounded-3xl p-4 sm:p-5 bg-gradient-to-r from-pink-500/10 via-rose-500/10 to-amber-500/10 border-2 border-pink-200/80 cursor-pointer flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm"
-      >
-        <div className="flex items-center space-x-3">
-          <div className="p-2.5 bg-pink-500 text-white rounded-2xl text-lg flex-shrink-0 shadow-md">
-            💬
-          </div>
-          <div>
-            <div className="flex items-center space-x-1.5">
-              <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-pink-500 text-white">
-                Beta Feedback
-              </span>
-              <h4 className="text-xs sm:text-sm font-black text-slate-800">
-                1차 완성본 지인 사용 의견 & 피드백 남기기
-              </h4>
-            </div>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              직접 사용해보신 솔직한 별점 평가와 개선 아이디어를 들려주세요! 실시간으로 반영됩니다.
-            </p>
-          </div>
-        </div>
-
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            openFeedbackModal();
-          }}
-          className="px-4 py-2 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-bold shadow transition flex items-center gap-1.5 whitespace-nowrap self-stretch sm:self-auto justify-center"
-        >
-          <MessageSquareHeart className="w-3.5 h-3.5 text-pink-400" />
-          <span>의견 남기기</span>
-        </button>
-      </div>
 
       {/* AI Smart Planner Callout Box */}
       <div 

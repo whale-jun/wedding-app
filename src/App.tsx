@@ -12,17 +12,13 @@ import { GuestView } from './components/guest/GuestView';
 import { InvitationView } from './components/invitation/InvitationView';
 import { HoneymoonView } from './components/honeymoon/HoneymoonView';
 import { OnboardingView } from './components/onboarding/OnboardingView';
-
 import { ProfileModal } from './components/common/ProfileModal';
-import { FeedbackModal } from './components/common/FeedbackModal';
 
 const MainContent: React.FC = () => {
   const { 
     activeTab, 
     isOnboardingDone, 
-    completeOnboarding,
-    isFeedbackModalOpen,
-    closeFeedbackModal
+    completeOnboarding
   } = useWedding();
 
   const renderActiveView = () => {
@@ -68,9 +64,6 @@ const MainContent: React.FC = () => {
 
         {/* Global Centered Profile & Invite Modal */}
         <ProfileModal />
-        
-        {/* Global Feedback Modal */}
-        <FeedbackModal isOpen={isFeedbackModalOpen} onClose={closeFeedbackModal} />
       </div>
     </div>
   );

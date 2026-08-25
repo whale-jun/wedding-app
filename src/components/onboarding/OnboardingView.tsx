@@ -16,6 +16,7 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { generateCoupleInviteCode } from '../../utils/codeGenerator';
+import { buildInviteUrl } from '../../utils/realtimePairing';
 
 interface OnboardingViewProps {
   onComplete: () => void;
@@ -70,8 +71,15 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) =>
 
   // Safe active invite code & Dynamic Real URL for GitHub Pages / PWA
   const currentInviteCode = profile.inviteCode || 'WD-7729-LOVE';
-  const baseUrl = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : 'https://whale-jun.github.io/wedding-app/';
-  const inviteLink = `${baseUrl}?code=${currentInviteCode}`;
+  const inviteLink = buildInviteUrl({
+    code: currentInviteCode,
+    myRole: role,
+    groomName: role === 'groom' ? name : profile.groomName,
+    brideName: role === 'bride' ? name : profile.brideName,
+    weddingDate: profile.weddingDate,
+    weddingVenue: profile.weddingVenue,
+    budgetGoal: profile.budgetGoal
+  });
 
   // Auto-fill pending invite code from URL parameter
   useEffect(() => {
@@ -129,7 +137,7 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) =>
 
   // Handle Step 2: Share via Kakao / SMS
   const handleShare = async () => {
-    const text = `[으ㅔ딩어픙] ${name}님이 결혼 준비에 초대했습니다! 💕\n초대코드: ${currentInviteCode}\n링크로 접속하여 함께 결혼을 준비해보세요: ${inviteLink}`;
+    const text = `[으ㅔ딩어픙] ${name}님이 결혼 준비에 초대했습니다! 💕\n초대코드: ${currentInviteCode}\n아래 링크를 눌러 실시간으로 함께 결혼을 준비해보세요:\n${inviteLink}`;
     if (navigator.share) {
       try {
         await navigator.share({
@@ -147,17 +155,21 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) =>
   };
 
   // Handle Partner Code Entry & Connect
-  const handleConnectPartner = (e: React.FormEvent) => {
+  const handleConnectPartner = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!partnerCodeInput.trim()) {
       alert('상대방의 초대 코드를 입력해주세요.');
       return;
     }
 
-    connectPartnerWithCode(partnerCodeInput.trim());
-    triggerConfetti();
-    alert('✨ 축하합니다! 상대방과 커플 연결이 완료되었습니다. 메인 화면으로 이동합니다!');
-    onComplete();
+    const success = await connectPartnerWithCode(partnerCodeInput.trim());
+    if (success) {
+      triggerConfetti();
+      alert('✨ 축하합니다! 상대방과 커플 연결이 완료되었습니다. 메인 화면으로 이동합니다!');
+      onComplete();
+    } else {
+      alert('유효하지 않은 초대 코드이거나 연결에 실패했습니다. 코드를 다시 확인해주세요.');
+    }
   };
 
   return (

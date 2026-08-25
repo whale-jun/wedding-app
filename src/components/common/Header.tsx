@@ -12,7 +12,6 @@ import {
   Sparkles,
   Users,
   UserPlus,
-  MessageSquareHeart,
   Cloud,
   CloudOff,
   RefreshCw
@@ -28,7 +27,6 @@ export const Header: React.FC = () => {
     resetToSampleData,
     resetOnboarding,
     openProfileModal,
-    openFeedbackModal,
     isSyncing,
     lastSyncedAt
   } = useWedding();
@@ -190,13 +188,6 @@ export const Header: React.FC = () => {
                   초기 샘플 데이터로 복원
                 </button>
                 <button
-                  onClick={openFeedbackModal}
-                  className="w-full px-4 py-2 text-left text-xs font-bold text-pink-600 hover:bg-pink-50 flex items-center gap-2"
-                >
-                  <MessageSquareHeart className="w-3.5 h-3.5 text-pink-500" />
-                  지인 의견 & 피드백 보내기
-                </button>
-                <button
                   onClick={() => {
                     if (confirm('초기 인트로 화면을 다시 보시겠습니까?')) {
                       resetOnboarding();
@@ -217,15 +208,6 @@ export const Header: React.FC = () => {
               accept=".json"
               className="hidden"
             />
-
-            {/* Feedback Button */}
-            <button
-              onClick={openFeedbackModal}
-              className="p-1.5 sm:p-2 rounded-xl border border-pink-200 bg-pink-50 hover:bg-pink-100 text-pink-600 transition flex items-center shadow-2xs"
-              title="사용자 의견 & 피드백 보내기"
-            >
-              <MessageSquareHeart className="w-3.5 h-3.5" />
-            </button>
 
             {/* Profile Settings */}
             <button

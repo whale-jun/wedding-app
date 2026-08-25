@@ -30,6 +30,7 @@ export const ProfileModal: React.FC = () => {
     generateNewInviteCode,
     connectPartnerWithCode, 
     disconnectPartner,
+    checkPairingStatusNow,
     triggerConfetti,
     isProfileModalOpen,
     profileModalTab,
@@ -142,7 +143,7 @@ export const ProfileModal: React.FC = () => {
     >
       {/* Centered Modal Card */}
       <div 
-        className="relative bg-white rounded-[28px] shadow-2xl max-w-lg w-full max-h-[82vh] overflow-hidden flex flex-col border border-rose-100 animate-scaleUp z-[101]"
+        className="relative bg-white rounded-[28px] shadow-2xl max-w-md w-full max-h-[88vh] overflow-hidden flex flex-col border border-rose-100 animate-scaleUp z-[101]"
         onClick={e => e.stopPropagation()}
       >
         
@@ -470,14 +471,32 @@ export const ProfileModal: React.FC = () => {
 
                 {/* Real-time Waiting for Partner Indicator */}
                 {!profile.isPartnerConnected && (
-                  <div className="p-3.5 rounded-xl bg-pink-50/80 border border-pink-200 flex items-start space-x-2.5 animate-pulse">
-                    <div className="w-2 h-2 rounded-full bg-rose-500 mt-1 flex-shrink-0 animate-ping" />
-                    <div className="text-[11px] text-slate-600 leading-relaxed">
-                      <span className="font-bold text-rose-700 block">
-                        상대방의 초대 동의를 실시간으로 기다리고 있어요 💕
-                      </span>
-                      상대방이 전달받은 링크를 누르고 성함을 입력하면, 별도 조작 없이 **양쪽 기기 모두 자동으로 연결 완료**되며 정보가 동기화됩니다.
+                  <div className="p-3.5 rounded-xl bg-pink-50/80 border border-pink-200 space-y-2.5">
+                    <div className="flex items-start space-x-2.5">
+                      <div className="w-2 h-2 rounded-full bg-rose-500 mt-1 flex-shrink-0 animate-ping" />
+                      <div className="text-[11px] text-slate-600 leading-relaxed">
+                        <span className="font-bold text-rose-700 block">
+                          상대방의 초대 동의를 실시간으로 기다리고 있어요 💕
+                        </span>
+                        상대방이 전달받은 링크를 누르고 성함을 입력하면, 별도 조작 없이 **양쪽 기기 모두 자동으로 연결 완료**되며 정보가 동기화됩니다.
+                      </div>
                     </div>
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const connected = await checkPairingStatusNow();
+                        if (connected) {
+                          alert('🎉 상대방과 연동이 확인되었습니다! 💕');
+                        } else {
+                          alert('아직 상대방이 초대를 수락하지 않았습니다.\n상대방이 링크를 누르고 성함을 입력한 뒤 다시 확인해주세요.');
+                        }
+                      }}
+                      className="w-full py-2 bg-white hover:bg-rose-50 text-rose-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border border-rose-200 shadow-xs transition"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>연동 상태 새로고침 확인 🔄</span>
+                    </button>
                   </div>
                 )}
               </div>

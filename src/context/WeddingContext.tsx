@@ -74,6 +74,7 @@ interface WeddingContextType {
   generateNewInviteCode: () => string;
   connectPartnerWithCode: (code: string) => Promise<boolean>;
   disconnectPartner: () => void;
+  checkPairingStatusNow: () => Promise<boolean>;
   dDay: number;
 
   // Actions - Budget
@@ -374,6 +375,39 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     return () => clearTimeout(timer);
   }, [profile, budget, checklist, events, compareSections, guests, gatherings, honeymoon, aiMilestones, isRemoteUpdate, activeSyncRoom]);
+
+  // Manually check pairing status from cloud on refresh / click
+  const checkPairingStatusNow = useCallback(async (): Promise<boolean> => {
+    const room = activeSyncRoom;
+    if (!room) return false;
+
+    await cloudSync.fetchCloudState(room);
+
+    try {
+      const local = localStorage.getItem(`wedding_cloud_state_${room}`);
+      if (local) {
+        const parsed = JSON.parse(local);
+        if (parsed.status === 'CONNECTED') {
+          setProfile(prev => ({
+            ...prev,
+            isPartnerConnected: true,
+            partnerConnectedAt: new Date().toISOString(),
+            groomName: prev.myRole === 'groom' ? prev.groomName : (parsed.groomName || prev.groomName || '신랑'),
+            brideName: prev.myRole === 'bride' ? prev.brideName : (parsed.brideName || prev.brideName || '신부'),
+            weddingDate: parsed.weddingDate || prev.weddingDate,
+            weddingVenue: parsed.weddingVenue || prev.weddingVenue,
+            budgetGoal: parsed.budgetGoal || prev.budgetGoal
+          }));
+          setIsOnboardingDone(true);
+          localStorage.setItem('wedding_app_onboarding_done_v1', 'true');
+          setIsProfileModalOpen(false);
+          triggerConfetti();
+          return true;
+        }
+      }
+    } catch (e) {}
+    return false;
+  }, [activeSyncRoom, triggerConfetti]);
 
   useEffect(() => {
     localStorage.setItem('wedding_app_mobile_frame_v1', JSON.stringify(isMobileFrame));
@@ -1152,6 +1186,7 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         closeProfileModal,
         connectPartnerWithCode,
         disconnectPartner,
+        checkPairingStatusNow,
         dDay,
         addBudgetItem,
         updateBudgetItem,

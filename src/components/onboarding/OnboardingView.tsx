@@ -173,7 +173,7 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) =>
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-gradient-to-b from-[#fff5f5] via-[#fdfaf8] to-[#fce7f3] flex flex-col justify-center items-center p-4 sm:p-6 overflow-y-auto select-none">
+    <div className="fixed inset-0 z-50 bg-gradient-to-b from-[#fff5f5] via-[#fdfaf8] to-[#fce7f3] flex flex-col justify-center items-center p-4 sm:p-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] overflow-y-auto select-none">
       
       {/* BACKGROUND FLOATING DECORATIONS */}
       <div className="absolute top-10 left-10 w-48 h-48 rounded-full bg-rose-300/20 blur-3xl pointer-events-none animate-pulse" />

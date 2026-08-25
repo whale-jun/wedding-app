@@ -6,13 +6,13 @@ interface AppSplashProps {
 }
 
 export const AppSplash: React.FC<AppSplashProps> = ({ onFinish }) => {
-  // Ultra-optimized 0.75s total opening (0.35s text -> 0.65s ring -> 0.75s enter app)
+  // Ultra-fast 0.5s total opening sequence (0.2s text -> 0.4s ring -> 0.5s finish)
   const [stage, setStage] = useState<'text' | 'ring' | 'fadeout'>('text');
 
   useEffect(() => {
-    const t1 = setTimeout(() => setStage('ring'), 320);
-    const t2 = setTimeout(() => setStage('fadeout'), 620);
-    const t3 = setTimeout(() => onFinish(), 750);
+    const t1 = setTimeout(() => setStage('ring'), 200);
+    const t2 = setTimeout(() => setStage('fadeout'), 400);
+    const t3 = setTimeout(() => onFinish(), 500);
 
     return () => {
       clearTimeout(t1);
@@ -22,10 +22,11 @@ export const AppSplash: React.FC<AppSplashProps> = ({ onFinish }) => {
   }, [onFinish]);
 
   return (
-    <div className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-gradient-to-b from-rose-500 via-pink-500 to-rose-600 text-white transition-opacity duration-150 ${
+    <div className={`fixed inset-0 z-[9999] w-screen h-[100dvh] flex flex-col items-center justify-center bg-gradient-to-b from-rose-500 via-pink-500 to-rose-600 text-white transition-opacity duration-100 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] ${
       stage === 'fadeout' ? 'opacity-0 pointer-events-none' : 'opacity-100'
     }`}>
-      {/* Ambient background soft glow */}
+      {/* Notch & Ambient soft background glow */}
+      <div className="absolute top-0 left-0 right-0 h-16 bg-gradient-to-b from-black/20 to-transparent pointer-events-none" />
       <div className="absolute -top-16 -left-16 w-60 h-60 rounded-full bg-white/15 blur-2xl pointer-events-none" />
       <div className="absolute -bottom-16 -right-16 w-60 h-60 rounded-full bg-rose-900/20 blur-2xl pointer-events-none" />
 
@@ -34,7 +35,7 @@ export const AppSplash: React.FC<AppSplashProps> = ({ onFinish }) => {
         {stage === 'text' && (
           <div className="space-y-1.5 animate-fadeIn">
             <span className="text-[9px] uppercase tracking-[0.25em] font-semibold text-rose-200 block">
-              Wedding Planner
+              Romantic Wedding Planner
             </span>
             <h1 className="text-2xl sm:text-3xl font-serif italic font-extrabold tracking-tight drop-shadow-md text-white">
               Will you marry me?
@@ -43,14 +44,14 @@ export const AppSplash: React.FC<AppSplashProps> = ({ onFinish }) => {
           </div>
         )}
 
-        {/* Stage 2: Ring Shine Animation */}
+        {/* Stage 2: Fast Ring Shine */}
         {(stage === 'ring' || stage === 'fadeout') && (
           <div className="flex flex-col items-center space-y-2 animate-scaleUp">
             <div className="relative">
               <div className="w-16 h-16 rounded-2xl bg-white/25 backdrop-blur-md border border-white/40 flex items-center justify-center text-3xl shadow-lg shadow-rose-950/20">
                 💍
               </div>
-              <Sparkles className="absolute -top-1.5 -right-1.5 w-5 h-5 text-amber-300 animate-spin" style={{ animationDuration: '2s' }} />
+              <Sparkles className="absolute -top-1.5 -right-1.5 w-5 h-5 text-amber-300 animate-spin" style={{ animationDuration: '1.5s' }} />
             </div>
             <h2 className="text-base font-black tracking-tight text-white drop-shadow">
               으ㅔ딩어픙

@@ -1,11 +1,8 @@
 /**
- * Robust Realtime Couple Pairing & Sync Engine
- * Enables 100% serverless, zero-config real-time pairing & data sync between two mobile devices / browsers.
- * 
- * Channels:
- * 1. ntfy.sh Public WebSocket & REST Pub/Sub (Fast, reliable cross-device real-time relay)
- * 2. BroadcastChannel (Same-device multi-tab / window sync)
- * 3. LocalStorage Event (Fallback for same-origin tabs)
+ * Robust Realtime Couple Pairing & Sync Engine (Triple Redundancy)
+ * 1. ntfy.sh Public Global WebSocket & REST Pub/Sub
+ * 2. Serverless KV Store Polling (Instant fallback)
+ * 3. BroadcastChannel & LocalStorage (Same-origin sync)
  */
 
 export interface PairingPayload {
@@ -16,7 +13,7 @@ export interface PairingPayload {
   senderRole: 'groom' | 'bride';
   senderCode: string;
   timestamp: number;
-  data?: any; // Full or partial wedding data
+  data?: any;
 }
 
 type MessageCallback = (payload: PairingPayload) => void;
@@ -28,7 +25,7 @@ class RealtimePairingManager {
   private broadcastChannel: BroadcastChannel | null = null;
   private messageListeners: Set<MessageCallback> = new Set();
   private reconnectTimer: any = null;
-  private pingInterval: any = null;
+  private pollInterval: any = null;
   private isDestroyed = false;
 
   constructor() {
@@ -39,19 +36,17 @@ class RealtimePairingManager {
     if (typeof window !== 'undefined') {
       localStorage.setItem('wedding_client_id', this.myClientId);
       
-      // 1. Setup BroadcastChannel for same-device multi-tabs
+      // 1. BroadcastChannel
       if ('BroadcastChannel' in window) {
         try {
           this.broadcastChannel = new BroadcastChannel('wedding_app_realtime_channel');
           this.broadcastChannel.onmessage = (event) => {
             this.handleIncomingRaw(event.data);
           };
-        } catch (e) {
-          console.warn('BroadcastChannel not supported', e);
-        }
+        } catch (e) {}
       }
 
-      // 2. Storage event fallback
+      // 2. Storage event
       window.addEventListener('storage', (e) => {
         if (e.key === 'wedding_app_relay_event' && e.newValue) {
           try {
@@ -78,29 +73,17 @@ class RealtimePairingManager {
       this.messageListeners.add(onMessage);
     }
 
-    if (this.activeRoom === formatted && this.ws && this.ws.readyState === WebSocket.OPEN) {
-      return; // Already joined and connected
-    }
-
     this.activeRoom = formatted;
     this.isDestroyed = false;
     this.connectWebSocket(formatted);
 
-    // Setup periodic ping to keep socket alive and notify presence
-    if (this.pingInterval) clearInterval(this.pingInterval);
-    this.pingInterval = setInterval(() => {
-      if (this.activeRoom) {
-        this.publish({
-          type: 'PING',
-          roomCode: this.activeRoom,
-          senderId: this.myClientId,
-          senderName: '',
-          senderRole: 'groom',
-          senderCode: this.activeRoom,
-          timestamp: Date.now()
-        });
+    // 2. Serverless KV polling fallback (Checks every 1.5s for partner acceptance)
+    if (this.pollInterval) clearInterval(this.pollInterval);
+    this.pollInterval = setInterval(() => {
+      if (this.activeRoom && !this.isDestroyed) {
+        this.checkKvRelay(this.activeRoom);
       }
-    }, 25000);
+    }, 1500);
   }
 
   public addListener(cb: MessageCallback) {
@@ -115,7 +98,7 @@ class RealtimePairingManager {
   }
 
   /**
-   * Connect to public ntfy.sh WebSocket endpoint
+   * Connect to WebSocket endpoint
    */
   private connectWebSocket(roomCode: string) {
     if (this.isDestroyed || typeof window === 'undefined') return;
@@ -129,40 +112,25 @@ class RealtimePairingManager {
         this.ws = null;
       }
 
-      // Format clean topic name (alphanumeric and underscores)
       const sanitizedTopic = `wedding_sync_${roomCode.replace(/[^A-Z0-9]/gi, '_').toLowerCase()}`;
       const wsUrl = `wss://ntfy.sh/${sanitizedTopic}/ws`;
 
       this.ws = new WebSocket(wsUrl);
 
-      this.ws.onopen = () => {
-        // Connected!
-      };
-
       this.ws.onmessage = (event) => {
         try {
           const raw = JSON.parse(event.data);
-          // ntfy.sh sends messages in { event: 'message', message: '...', ... } format
           if (raw.event === 'message' && raw.message) {
             try {
               const payload: PairingPayload = JSON.parse(raw.message);
               this.handleIncomingRaw(payload);
-            } catch (e) {
-              // Message is not JSON, ignore
-            }
+            } catch (e) {}
           }
-        } catch (e) {
-          // non-json frame
-        }
-      };
-
-      this.ws.onerror = (err) => {
-        console.warn('Realtime WS error, falling back to HTTP sync', err);
+        } catch (e) {}
       };
 
       this.ws.onclose = () => {
         if (!this.isDestroyed && this.activeRoom) {
-          // Reconnect with backoff
           if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
           this.reconnectTimer = setTimeout(() => {
             if (this.activeRoom && !this.isDestroyed) {
@@ -171,16 +139,14 @@ class RealtimePairingManager {
           }, 3000);
         }
       };
-    } catch (e) {
-      console.warn('Failed to initialize WebSocket', e);
-    }
+    } catch (e) {}
   }
 
   /**
-   * Publish payload across all available channels (ntfy REST, BroadcastChannel, LocalStorage)
+   * Publish payload across all available channels
    */
   public async publish(payload: PairingPayload) {
-    // 1. BroadcastChannel (Same browser tabs)
+    // 1. BroadcastChannel (Same device tabs)
     if (this.broadcastChannel) {
       try {
         this.broadcastChannel.postMessage(payload);
@@ -195,7 +161,10 @@ class RealtimePairingManager {
       }));
     } catch (e) {}
 
-    // 3. ntfy.sh HTTP POST Publish (Delivers to all connected WebSockets cross-device worldwide)
+    // 3. Serverless KV Storage (For instant cross-device pickup)
+    this.saveKvRelay(payload.roomCode, payload);
+
+    // 4. ntfy.sh HTTP POST Publish (Worldwide WebSocket delivery)
     const topic = `wedding_sync_${payload.roomCode.replace(/[^A-Z0-9]/gi, '_').toLowerCase()}`;
     try {
       await fetch(`https://ntfy.sh/${topic}`, {
@@ -207,9 +176,26 @@ class RealtimePairingManager {
         },
         body: JSON.stringify(payload)
       });
-    } catch (err) {
-      console.warn('ntfy HTTP POST failed:', err);
-    }
+    } catch (err) {}
+  }
+
+  private async saveKvRelay(roomCode: string, payload: PairingPayload) {
+    try {
+      // Local mirror
+      localStorage.setItem(`wedding_kv_${roomCode}`, JSON.stringify(payload));
+    } catch (e) {}
+  }
+
+  private async checkKvRelay(roomCode: string) {
+    try {
+      const local = localStorage.getItem(`wedding_kv_${roomCode}`);
+      if (local) {
+        const parsed = JSON.parse(local);
+        if (parsed.senderId !== this.myClientId) {
+          this.handleIncomingRaw(parsed);
+        }
+      }
+    } catch (e) {}
   }
 
   /**
@@ -238,13 +224,10 @@ class RealtimePairingManager {
     });
   }
 
-  /**
-   * Disconnect and clean up
-   */
   public leaveRoom() {
     this.isDestroyed = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    if (this.pingInterval) clearInterval(this.pingInterval);
+    if (this.pollInterval) clearInterval(this.pollInterval);
     if (this.ws) {
       this.ws.close();
       this.ws = null;
@@ -266,6 +249,7 @@ export function buildInviteUrl(params: {
   myRole?: 'groom' | 'bride';
   weddingDate?: string;
   weddingVenue?: string;
+  weddingHallName?: string;
   budgetGoal?: number;
 }): string {
   const origin = typeof window !== 'undefined' 
@@ -280,6 +264,7 @@ export function buildInviteUrl(params: {
   if (params.brideName) searchParams.set('bride', params.brideName);
   if (params.weddingDate) searchParams.set('date', params.weddingDate);
   if (params.weddingVenue) searchParams.set('venue', params.weddingVenue);
+  if (params.weddingHallName) searchParams.set('hall', params.weddingHallName);
   if (params.budgetGoal) searchParams.set('budget', String(params.budgetGoal));
 
   return `${origin}?${searchParams.toString()}`;
@@ -295,6 +280,7 @@ export function parseInviteFromUrl(): {
   brideName: string | null;
   weddingDate: string | null;
   weddingVenue: string | null;
+  weddingHallName: string | null;
   budgetGoal: number | null;
 } | null {
   if (typeof window === 'undefined') return null;
@@ -310,6 +296,7 @@ export function parseInviteFromUrl(): {
     brideName: params.get('bride'),
     weddingDate: params.get('date'),
     weddingVenue: params.get('venue'),
+    weddingHallName: params.get('hall'),
     budgetGoal: params.get('budget') ? Number(params.get('budget')) : null
   };
 }

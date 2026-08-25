@@ -467,6 +467,19 @@ export const ProfileModal: React.FC = () => {
                     <span>{isLinkCopied ? '링크 복사완료' : '초대링크 복사'}</span>
                   </button>
                 </div>
+
+                {/* Real-time Waiting for Partner Indicator */}
+                {!profile.isPartnerConnected && (
+                  <div className="p-3.5 rounded-xl bg-pink-50/80 border border-pink-200 flex items-start space-x-2.5 animate-pulse">
+                    <div className="w-2 h-2 rounded-full bg-rose-500 mt-1 flex-shrink-0 animate-ping" />
+                    <div className="text-[11px] text-slate-600 leading-relaxed">
+                      <span className="font-bold text-rose-700 block">
+                        상대방의 초대 동의를 실시간으로 기다리고 있어요 💕
+                      </span>
+                      상대방이 전달받은 링크를 누르고 성함을 입력하면, 별도 조작 없이 **양쪽 기기 모두 자동으로 연결 완료**되며 정보가 동기화됩니다.
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* 2. Enter Partner's Code */}

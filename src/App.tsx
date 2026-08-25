@@ -13,6 +13,7 @@ import { InvitationView } from './components/invitation/InvitationView';
 import { HoneymoonView } from './components/honeymoon/HoneymoonView';
 import { OnboardingView } from './components/onboarding/OnboardingView';
 import { ProfileModal } from './components/common/ProfileModal';
+import { PartnerInviteModal } from './components/common/PartnerInviteModal';
 
 const MainContent: React.FC = () => {
   const { 
@@ -48,7 +49,7 @@ const MainContent: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#faf7f5] text-slate-800 flex flex-col items-center justify-start antialiased selection:bg-rose-500 selection:text-white">
-      {/* Native App Container: 100% full screen on mobile, elegant mobile app shell on desktop */}
+      {/* Native App Container */}
       <div className="w-full max-w-lg min-h-screen bg-[#faf7f5] flex flex-col relative shadow-2xl md:border-x md:border-rose-100/60 overflow-x-hidden">
         {!isOnboardingDone ? (
           <OnboardingView onComplete={completeOnboarding} />
@@ -64,6 +65,9 @@ const MainContent: React.FC = () => {
 
         {/* Global Centered Profile & Invite Modal */}
         <ProfileModal />
+
+        {/* Global Partner Invite Receiver Modal */}
+        <PartnerInviteModal />
       </div>
     </div>
   );

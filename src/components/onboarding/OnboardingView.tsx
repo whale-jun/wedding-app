@@ -397,6 +397,17 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) =>
                     <span>{isLinkCopied ? '링크 복사됨' : '초대링크 복사'}</span>
                   </button>
                 </div>
+
+                {/* Live Waiting Status */}
+                <div className="p-3.5 rounded-xl bg-white/90 border border-rose-200 flex items-start space-x-2.5 animate-pulse">
+                  <div className="w-2 h-2 rounded-full bg-rose-500 mt-1 flex-shrink-0 animate-ping" />
+                  <div className="text-[11px] text-slate-600 leading-relaxed">
+                    <span className="font-bold text-rose-700 block">
+                      상대방의 초대 동의를 실시간으로 기다리고 있어요 💕
+                    </span>
+                    상대방이 링크를 열고 성함을 입력하면, **자동으로 연동이 완료되어 메인 화면으로 이동**합니다.
+                  </div>
+                </div>
               </div>
 
               {/* 2. OR ENTER PARTNER'S CODE */}

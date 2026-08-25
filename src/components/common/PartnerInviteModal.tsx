@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useWedding } from '../../context/WeddingContext';
 import { parseInviteFromUrl, realtimePairing } from '../../utils/realtimePairing';
-import { Heart, Sparkles, Check, ArrowRight, UserCheck, Calendar, MapPin, X } from 'lucide-react';
+import { Heart, Sparkles, Check, ArrowRight, Calendar, MapPin, DollarSign, UserCheck } from 'lucide-react';
 
 export const PartnerInviteModal: React.FC = () => {
   const { 
     profile, 
     updateProfile, 
-    connectPartnerWithCode, 
     completeOnboarding,
     triggerConfetti 
   } = useWedding();
@@ -55,6 +54,7 @@ export const PartnerInviteModal: React.FC = () => {
         isPartnerConnected: true,
         partnerConnectedAt: new Date().toISOString(),
         myRole: myRole,
+        inviteCode: inviteData.code || profile.inviteCode
       };
 
       if (myRole === 'groom') {
@@ -67,163 +67,159 @@ export const PartnerInviteModal: React.FC = () => {
 
       if (inviteData.weddingDate) updatePayload.weddingDate = inviteData.weddingDate;
       if (inviteData.weddingVenue) updatePayload.weddingVenue = inviteData.weddingVenue;
+      if (inviteData.weddingHallName) updatePayload.weddingHallName = inviteData.weddingHallName;
       if (inviteData.budgetGoal) updatePayload.budgetGoal = inviteData.budgetGoal;
 
       updateProfile(updatePayload);
 
-      // 2. Perform connection & handshake over realtime relay
-      await connectPartnerWithCode(inviteData.code);
-
-      // 3. Mark onboarding complete so user sees the shared dashboard
-      completeOnboarding();
-
-      // 4. Remove code query param from URL without page reload
-      if (typeof window !== 'undefined') {
-        const url = new URL(window.location.href);
-        url.searchParams.delete('code');
-        url.searchParams.delete('role');
-        url.searchParams.delete('groom');
-        url.searchParams.delete('bride');
-        url.searchParams.delete('date');
-        url.searchParams.delete('venue');
-        url.searchParams.delete('budget');
-        window.history.replaceState({}, document.title, url.pathname);
-      }
+      // 2. Broadcast acceptance to partner via Realtime Relay
+      await realtimePairing.publish({
+        type: 'PAIR_ACCEPT',
+        roomCode: inviteData.code,
+        senderId: realtimePairing.getClientId(),
+        senderName: myName.trim(),
+        senderRole: myRole,
+        senderCode: inviteData.code,
+        timestamp: Date.now(),
+        data: {
+          profile: {
+            ...profile,
+            ...updatePayload
+          }
+        }
+      });
 
       triggerConfetti();
+      completeOnboarding();
       setIsOpen(false);
-      alert(`🎉 축하합니다! ${senderDisplayName}님과 성공적으로 연결되었습니다!\n지금부터 모든 일정과 예산이 실시간으로 공유됩니다.`);
+
+      // Clean URL params without reloading
+      if (window.history.replaceState) {
+        const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+        window.history.replaceState({ path: cleanUrl }, '', cleanUrl);
+      }
+
+      alert(`🎉 축하합니다! ${senderDisplayName}님과의 커플 연결이 완료되었습니다! 💕\n두 분의 행복한 결혼 준비를 함께 시작합니다.`);
     } catch (err) {
       console.error(err);
-      alert('연결 중 오류가 발생했습니다. 다시 시도해주세요.');
+      alert('연결 처리 중 오류가 발생했습니다. 다시 시도해주세요.');
     } finally {
       setIsConnecting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fadeIn">
-      <div className="relative bg-white rounded-[32px] shadow-2xl max-w-md w-full overflow-hidden border-2 border-rose-200 animate-scaleUp">
-        
-        {/* Top Header Banner */}
-        <div className="bg-gradient-to-r from-rose-500 via-pink-500 to-rose-600 p-6 text-white text-center relative">
-          <button 
-            type="button" 
-            onClick={() => setIsOpen(false)}
-            className="absolute top-4 right-4 p-1.5 rounded-full bg-white/20 hover:bg-white/30 text-white transition"
-          >
-            <X className="w-4 h-4" />
-          </button>
-
-          <div className="w-16 h-16 mx-auto rounded-full bg-white/20 backdrop-blur flex items-center justify-center mb-3 shadow-inner ring-4 ring-white/30 animate-bounce">
-            <span className="text-3xl">💍</span>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fadeIn">
+      <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl border border-rose-100 animate-scaleUp">
+        {/* Header Ribbon */}
+        <div className="bg-gradient-to-r from-rose-500 via-pink-500 to-rose-600 text-white p-6 text-center relative overflow-hidden">
+          <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-white/10 blur-xl pointer-events-none" />
+          <div className="w-14 h-14 mx-auto rounded-2xl bg-white/20 backdrop-blur border border-white/30 flex items-center justify-center text-3xl shadow-inner mb-3">
+            💍
           </div>
-
-          <div className="inline-flex items-center space-x-1 px-3 py-1 rounded-full bg-white/20 text-xs font-bold text-rose-100 mb-2">
-            <Sparkles className="w-3.5 h-3.5 text-amber-200" />
-            <span>커플 초대장 도착</span>
-          </div>
-
-          <h2 className="text-xl font-black text-white">
-            {senderDisplayName}님의 결혼 준비 초대 💕
-          </h2>
+          <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-white/25 text-white inline-block mb-1">
+            Couple Connection
+          </span>
+          <h3 className="text-lg font-black tracking-tight">
+            {senderDisplayName}님의 결혼 준비 초대
+          </h3>
           <p className="text-xs text-rose-100 mt-1">
-            소중한 결혼 준비를 함께 시작해보세요!
+            소중한 결혼 준비를 함께할 파트너로 초대되었습니다! 💕
           </p>
         </div>
 
-        {/* Modal Body */}
-        <div className="p-6 space-y-5">
-          {/* Invitation Details Summary Card */}
-          <div className="p-4 bg-rose-50/70 rounded-2xl border border-rose-100 space-y-2.5">
-            <div className="text-xs font-bold text-rose-800 flex items-center gap-1.5">
-              <Heart className="w-4 h-4 text-rose-500 fill-rose-400" />
-              <span>초대 정보</span>
+        {/* Invited Wedding Summary Card */}
+        <div className="p-5 space-y-4">
+          <div className="bg-rose-50/70 rounded-2xl p-3.5 border border-rose-100 space-y-2 text-xs">
+            <div className="flex items-center justify-between text-slate-600 font-medium">
+              <span className="flex items-center gap-1 text-slate-500">
+                <Heart className="w-3.5 h-3.5 text-rose-500" />
+                초대하신 분
+              </span>
+              <span className="font-bold text-slate-800">
+                {senderRoleName} {senderDisplayName}님
+              </span>
             </div>
-
-            <div className="grid grid-cols-2 gap-2 text-xs text-slate-700">
-              <div className="p-2.5 bg-white rounded-xl border border-rose-100/80">
-                <span className="text-[11px] text-slate-400 block">초대한 분</span>
-                <span className="font-bold text-slate-800">{senderDisplayName} ({senderRoleName})</span>
-              </div>
-              <div className="p-2.5 bg-white rounded-xl border border-rose-100/80 font-mono">
-                <span className="text-[11px] text-slate-400 block">초대 코드</span>
-                <span className="font-bold text-rose-600">{inviteData.code}</span>
-              </div>
-            </div>
-
             {inviteData.weddingDate && (
-              <div className="p-2.5 bg-white rounded-xl border border-rose-100/80 flex items-center justify-between text-xs">
-                <span className="text-slate-500 flex items-center gap-1">
+              <div className="flex items-center justify-between text-slate-600 font-medium">
+                <span className="flex items-center gap-1 text-slate-500">
                   <Calendar className="w-3.5 h-3.5 text-rose-500" />
                   예식 예정일
                 </span>
-                <span className="font-bold text-slate-800">{inviteData.weddingDate}</span>
+                <span className="font-bold text-slate-800">
+                  {inviteData.weddingDate}
+                </span>
+              </div>
+            )}
+            {inviteData.weddingVenue && (
+              <div className="flex items-center justify-between text-slate-600 font-medium">
+                <span className="flex items-center gap-1 text-slate-500">
+                  <MapPin className="w-3.5 h-3.5 text-rose-500" />
+                  예식 장소
+                </span>
+                <span className="font-bold text-slate-800">
+                  {inviteData.weddingVenue}
+                </span>
               </div>
             )}
           </div>
 
-          {/* Form: Confirm My Name & Role */}
-          <form onSubmit={handleAcceptInvite} className="space-y-4">
-            {/* My Role Selection */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">
-                본인의 역할을 선택해주세요
-              </label>
+          <form onSubmit={handleAcceptInvite} className="space-y-3.5">
+            {/* Role Selection */}
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-slate-700">본인의 역할</label>
               <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setMyRole('bride')}
-                  className={`py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border transition ${
-                    myRole === 'bride'
-                      ? 'bg-rose-500 text-white border-rose-500 shadow-sm'
-                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                  }`}
-                >
-                  <span>👰 저는 신부입니다</span>
-                </button>
                 <button
                   type="button"
                   onClick={() => setMyRole('groom')}
                   className={`py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border transition ${
                     myRole === 'groom'
-                      ? 'bg-rose-500 text-white border-rose-500 shadow-sm'
-                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                      ? 'border-rose-500 bg-rose-50 text-rose-700 ring-2 ring-rose-200'
+                      : 'border-slate-200 bg-white text-slate-600'
                   }`}
                 >
                   <span>🤵 저는 신랑입니다</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setMyRole('bride')}
+                  className={`py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border transition ${
+                    myRole === 'bride'
+                      ? 'border-rose-500 bg-rose-50 text-rose-700 ring-2 ring-rose-200'
+                      : 'border-slate-200 bg-white text-slate-600'
+                  }`}
+                >
+                  <span>👰 저는 신부입니다</span>
+                </button>
               </div>
             </div>
 
-            {/* My Name */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">
-                본인의 이름을 입력해주세요
+            {/* Name Input */}
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-slate-700">
+                {myRole === 'groom' ? '신랑님 성함' : '신부님 성함'}
               </label>
               <input
                 type="text"
                 value={myName}
-                onChange={e => setMyName(e.target.value)}
-                placeholder="성함을 입력하세요 (예: 김서연)"
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-rose-400 focus:ring-2 focus:ring-rose-100 outline-none text-xs font-bold bg-slate-50"
+                onChange={(e) => setMyName(e.target.value)}
+                placeholder="성함을 작성해주세요"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 outline-none text-xs font-semibold bg-slate-50/50"
                 required
-                autoFocus
               />
             </div>
 
-            {/* Submit Button */}
             <button
               type="submit"
               disabled={isConnecting}
-              className="w-full py-3.5 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white rounded-2xl text-xs font-black shadow-lg hover:shadow-xl active:scale-98 transition flex items-center justify-center gap-2 mt-2 disabled:opacity-50"
+              className="w-full py-3 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white rounded-xl text-xs font-black shadow-lg hover:shadow-xl transition flex items-center justify-center gap-2 mt-2 disabled:opacity-50"
             >
               {isConnecting ? (
-                <span>실시간 연동 중... ⏳</span>
+                <span>연동 처리 중...</span>
               ) : (
                 <>
-                  <UserCheck className="w-4 h-4" />
-                  <span>초대 수락 및 실시간 연동 시작하기 💕</span>
+                  <span>💕 초대 수락하고 함께 시작하기</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
                 </>
               )}
             </button>

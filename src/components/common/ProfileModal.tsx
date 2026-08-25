@@ -53,7 +53,16 @@ export const ProfileModal: React.FC = () => {
         generateNewInviteCode();
       }
     }
-  }, [isProfileModalOpen, profileModalTab]);
+  }, [isProfileModalOpen, profileModalTab, profile, generateNewInviteCode]);
+
+  useEffect(() => {
+    if (isProfileModalOpen) {
+      const pending = localStorage.getItem('wedding_pending_invite_code');
+      if (pending && !inputPartnerCode) {
+        setInputPartnerCode(pending);
+      }
+    }
+  }, [isProfileModalOpen, inputPartnerCode]);
 
   if (!isProfileModalOpen) return null;
 
@@ -67,13 +76,6 @@ export const ProfileModal: React.FC = () => {
     weddingVenue: profile.weddingVenue,
     budgetGoal: profile.budgetGoal
   });
-
-  useEffect(() => {
-    const pending = localStorage.getItem('wedding_pending_invite_code');
-    if (pending && !inputPartnerCode) {
-      setInputPartnerCode(pending);
-    }
-  }, [isProfileModalOpen]);
 
   const handleSaveAndClose = (e?: React.FormEvent) => {
     if (e) e.preventDefault();

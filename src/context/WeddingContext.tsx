@@ -36,6 +36,7 @@ import { playWeddingChime, sendLocalNotification } from '../utils/notifications'
 import { generateAiWeddingMilestones } from '../utils/aiScheduleGenerator';
 import { generateCoupleInviteCode } from '../utils/codeGenerator';
 import { realtimePairing } from '../utils/realtimePairing';
+import { cloudSync } from '../utils/cloudSyncEngine';
 
 interface WeddingContextType {
   // Data
@@ -279,85 +280,31 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Active Room Code for cross-device realtime sync
   const activeSyncRoom = (profile.isPartnerConnected && weddingId) 
     ? weddingId 
-    : (profile.inviteCode || 'WD-DEFAULT');
+    : (profile.inviteCode || 'WD-7729-LOVE');
 
-  // Listen for realtime pairing and data updates
+  // Listen for realtime pairing and data updates via cloudSync 4-layer engine
   useEffect(() => {
     if (!activeSyncRoom) return;
 
+    cloudSync.connectRoom(activeSyncRoom);
     realtimePairing.joinRoom(activeSyncRoom);
 
-    const unsubscribe = realtimePairing.addListener((payload) => {
-      // 1. Incoming Connection Request (Partner entered our code)
-      if (payload.type === 'PAIR_REQUEST') {
-        const partnerName = payload.senderName || '배우자';
-        const partnerRole = payload.senderRole || (profile.myRole === 'groom' ? 'bride' : 'groom');
-
-        setIsRemoteUpdate(true);
-        setProfile(prev => ({
-          ...prev,
-          isPartnerConnected: true,
-          partnerConnectedAt: new Date().toISOString(),
-          brideName: prev.myRole === 'groom' ? (partnerName || prev.brideName) : prev.brideName,
-          groomName: prev.myRole === 'bride' ? (partnerName || prev.groomName) : prev.groomName,
-        }));
-        setWeddingId(activeSyncRoom);
-        setLastSyncedAt(new Date().toISOString());
-        setIsOnboardingDone(true);
-        localStorage.setItem('wedding_app_onboarding_done_v1', 'true');
-        setIsProfileModalOpen(false);
-
-        // Respond with PAIR_ACCEPT containing our full latest data
-        const myName = profile.myRole === 'groom' ? (profile.groomName || '신랑') : (profile.brideName || '신부');
-        realtimePairing.publish({
-          type: 'PAIR_ACCEPT',
-          roomCode: activeSyncRoom,
-          senderId: realtimePairing.getClientId(),
-          senderName: myName,
-          senderRole: profile.myRole || 'groom',
-          senderCode: profile.inviteCode || activeSyncRoom,
-          timestamp: Date.now(),
-          data: {
-            profile: {
-              ...profile,
-              isPartnerConnected: true,
-              partnerConnectedAt: new Date().toISOString(),
-              brideName: profile.myRole === 'groom' ? partnerName : profile.brideName,
-              groomName: profile.myRole === 'bride' ? partnerName : profile.groomName,
-            },
-            budget,
-            checklist,
-            events,
-            compareSections,
-            guests,
-            gatherings,
-            honeymoon,
-            aiMilestones
-          }
-        });
-
-        triggerConfetti();
-        alert(`🎉 축하합니다! 상대방(${partnerName}님)이 연결되었습니다!\n실시간 웨딩 데이터 동기화가 활성화되었습니다. 💕`);
-        setTimeout(() => setIsRemoteUpdate(false), 300);
-      }
-
-      // 2. Incoming Pair Acceptance (Partner accepted our request or sent full data)
-      else if (payload.type === 'PAIR_ACCEPT') {
+    const unsubscribe = cloudSync.addListener((payload) => {
+      // 1. Incoming Pair Acceptance (Partner accepted our request or sent full data)
+      if (payload.type === 'PAIR_ACCEPT') {
         setIsRemoteUpdate(true);
         const partnerName = payload.senderName || '배우자';
 
-        if (payload.data) {
+        if (payload.data && payload.data.profile) {
           const d = payload.data;
-          if (d.profile) {
-            setProfile(prev => ({
-              ...prev,
-              ...d.profile,
-              isPartnerConnected: true,
-              partnerConnectedAt: new Date().toISOString(),
-              groomName: prev.myRole === 'groom' ? prev.groomName : (d.profile.groomName || prev.groomName),
-              brideName: prev.myRole === 'bride' ? prev.brideName : (d.profile.brideName || prev.brideName),
-            }));
-          }
+          setProfile(prev => ({
+            ...prev,
+            ...d.profile,
+            isPartnerConnected: true,
+            partnerConnectedAt: new Date().toISOString(),
+            groomName: prev.myRole === 'groom' ? prev.groomName : (d.profile.groomName || prev.groomName || '신랑'),
+            brideName: prev.myRole === 'bride' ? prev.brideName : (d.profile.brideName || prev.brideName || '신부'),
+          }));
           if (d.budget && Array.isArray(d.budget)) setBudget(d.budget);
           if (d.checklist && Array.isArray(d.checklist)) setChecklist(d.checklist);
           if (d.events && Array.isArray(d.events)) setEvents(d.events);
@@ -382,12 +329,12 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         localStorage.setItem('wedding_app_onboarding_done_v1', 'true');
         setIsProfileModalOpen(false);
         triggerConfetti();
-        alert(`🎉 축하합니다! 상대방(${partnerName}님)과 성공적으로 커플 연결되었습니다!\n모든 일정과 예산이 실시간으로 동기화됩니다. 💕`);
+        alert(`🎉 축하합니다! 상대방(${partnerName}님)과 커플 연결이 완료되었습니다! 💕\n두 분의 모든 일정과 예산이 실시간으로 동기화됩니다.`);
         setTimeout(() => setIsRemoteUpdate(false), 300);
       }
 
-      // 3. Realtime Live Data Sync
-      else if (payload.type === 'SYNC_DATA') {
+      // 2. Realtime Live Data Sync (Any update to checklist, budget, events, guests)
+      else if (payload.type === 'SYNC_ALL') {
         if (payload.data) {
           setIsRemoteUpdate(true);
           const d = payload.data;
@@ -395,7 +342,6 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
             setProfile(prev => ({
               ...prev,
               ...d.profile,
-              // Keep my local role & identity
               myRole: prev.myRole,
               groomName: prev.myRole === 'groom' ? prev.groomName : (d.profile.groomName || prev.groomName),
               brideName: prev.myRole === 'bride' ? prev.brideName : (d.profile.brideName || prev.brideName),
@@ -414,22 +360,12 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setTimeout(() => setIsRemoteUpdate(false), 300);
         }
       }
-
-      // 4. Partner Disconnected
-      else if (payload.type === 'DISCONNECT') {
-        setProfile(prev => ({
-          ...prev,
-          isPartnerConnected: false,
-          partnerConnectedAt: undefined
-        }));
-        alert('상대방이 커플 연결을 해제했습니다.');
-      }
     });
 
     return () => {
       unsubscribe();
     };
-  }, [activeSyncRoom, profile, budget, checklist, events, compareSections, guests, gatherings, honeymoon, aiMilestones]);
+  }, [activeSyncRoom, profile.myRole]);
 
   // Broadcast data changes to connected partner in realtime
   useEffect(() => {
@@ -438,10 +374,10 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const timer = setTimeout(() => {
       const myName = profile.myRole === 'groom' ? (profile.groomName || '신랑') : (profile.brideName || '신부');
       setIsSyncing(true);
-      realtimePairing.publish({
-        type: 'SYNC_DATA',
+      cloudSync.broadcast({
+        type: 'SYNC_ALL',
         roomCode: activeSyncRoom,
-        senderId: realtimePairing.getClientId(),
+        senderId: cloudSync.getClientId(),
         senderName: myName,
         senderRole: profile.myRole || 'groom',
         senderCode: profile.inviteCode || activeSyncRoom,

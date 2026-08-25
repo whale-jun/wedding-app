@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { WeddingProvider, useWedding } from './context/WeddingContext';
 import { Header } from './components/common/Header';
 import { Navigation } from './components/common/Navigation';
@@ -14,6 +14,7 @@ import { HoneymoonView } from './components/honeymoon/HoneymoonView';
 import { OnboardingView } from './components/onboarding/OnboardingView';
 import { ProfileModal } from './components/common/ProfileModal';
 import { PartnerInviteModal } from './components/common/PartnerInviteModal';
+import { AppSplash } from './components/common/AppSplash';
 
 const MainContent: React.FC = () => {
   const { 
@@ -21,6 +22,8 @@ const MainContent: React.FC = () => {
     isOnboardingDone, 
     completeOnboarding
   } = useWedding();
+
+  const [showSplash, setShowSplash] = useState(true);
 
   const renderActiveView = () => {
     switch (activeTab) {
@@ -49,7 +52,10 @@ const MainContent: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#faf7f5] text-slate-800 flex flex-col items-center justify-start antialiased selection:bg-rose-500 selection:text-white">
-      {/* Native App Container */}
+      {/* 1. App Launch Romantic Splash (Will you marry me? -> 💍 -> Logo) */}
+      {showSplash && <AppSplash onFinish={() => setShowSplash(false)} />}
+
+      {/* 2. Native App Container */}
       <div className="w-full max-w-lg min-h-screen bg-[#faf7f5] flex flex-col relative shadow-2xl md:border-x md:border-rose-100/60 overflow-x-hidden">
         {!isOnboardingDone ? (
           <OnboardingView onComplete={completeOnboarding} />

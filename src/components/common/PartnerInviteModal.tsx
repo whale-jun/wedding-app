@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useWedding } from '../../context/WeddingContext';
 import { parseInviteFromUrl, realtimePairing } from '../../utils/realtimePairing';
+import { cloudSync } from '../../utils/cloudSyncEngine';
 import { Heart, Sparkles, Check, ArrowRight, Calendar, MapPin, DollarSign, UserCheck } from 'lucide-react';
 
 export const PartnerInviteModal: React.FC = () => {
@@ -72,11 +73,11 @@ export const PartnerInviteModal: React.FC = () => {
 
       updateProfile(updatePayload);
 
-      // 2. Broadcast acceptance to partner via Realtime Relay
-      await realtimePairing.publish({
+      // 2. Broadcast acceptance to partner via cloudSync & Realtime Relay
+      const acceptPayload: any = {
         type: 'PAIR_ACCEPT',
         roomCode: inviteData.code,
-        senderId: realtimePairing.getClientId(),
+        senderId: cloudSync.getClientId(),
         senderName: myName.trim(),
         senderRole: myRole,
         senderCode: inviteData.code,
@@ -87,7 +88,12 @@ export const PartnerInviteModal: React.FC = () => {
             ...updatePayload
           }
         }
-      });
+      };
+
+      await Promise.all([
+        cloudSync.broadcast(acceptPayload),
+        realtimePairing.publish(acceptPayload)
+      ]);
 
       triggerConfetti();
       completeOnboarding();

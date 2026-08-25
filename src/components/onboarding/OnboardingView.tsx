@@ -31,8 +31,8 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) =>
     triggerConfetti 
   } = useWedding();
 
-  // Animation sequence states: 'text' -> 'ring-center' -> 'ring-top' -> 'form'
-  const [animStage, setAnimStage] = useState<'text' | 'ring-center' | 'ring-top' | 'form'>('text');
+  // Animation sequence states: 'form' (AppSplash handles app opening)
+  const [animStage, setAnimStage] = useState<'text' | 'ring-center' | 'ring-top' | 'form'>('form');
   
   // Step in form: 1 (profile input: name, role, phone) -> 2 (couple invite / enter code)
   const [step, setStep] = useState<1 | 2>(1);
@@ -44,30 +44,6 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) =>
   const [partnerCodeInput, setPartnerCodeInput] = useState('');
   const [isCopied, setIsCopied] = useState(false);
   const [isLinkCopied, setIsLinkCopied] = useState(false);
-
-  // Step 0: Splash Animation Sequence
-  useEffect(() => {
-    // 1. "Will you marry me?" text displays for 1.8s
-    const timer1 = setTimeout(() => {
-      setAnimStage('ring-center');
-    }, 1800);
-
-    // 2. Ring appears in center and shines for 1.4s
-    const timer2 = setTimeout(() => {
-      setAnimStage('ring-top');
-    }, 3200);
-
-    // 3. Ring flies up and form appears
-    const timer3 = setTimeout(() => {
-      setAnimStage('form');
-    }, 4000);
-
-    return () => {
-      clearTimeout(timer1);
-      clearTimeout(timer2);
-      clearTimeout(timer3);
-    };
-  }, []);
 
   // Safe active invite code & Dynamic Real URL for GitHub Pages / PWA
   const currentInviteCode = profile.inviteCode || 'WD-7729-LOVE';

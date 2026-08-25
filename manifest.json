@@ -1,0 +1,16 @@
+{
+  "short_name": "으ㅔ딩어픙",
+  "name": "으ㅔ딩어픙 | AI 커플 웨딩 플래너",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192 512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#fdfaf8",
+  "theme_color": "#fb7185",
+  "display": "standalone",
+  "orientation": "portrait"
+}

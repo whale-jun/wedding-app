@@ -18,6 +18,7 @@ import { AppSplash } from './components/common/AppSplash';
 import { AccountModal } from './components/common/AccountModal';
 import { ActivityToast } from './components/common/ActivityToast';
 import { PullToRefresh } from './components/common/PullToRefresh';
+import { QuickActionSheet } from './components/common/QuickActionSheet';
 
 const MainContent: React.FC = () => {
   const { 
@@ -90,6 +91,9 @@ const MainContent: React.FC = () => {
 
         {/* Global User Cloud Account & Backup Modal */}
         <AccountModal isOpen={isAccountModalOpen} onClose={closeAccountModal} />
+
+        {/* Global Floating Quick Action Button & Slide-up Sheet */}
+        {isOnboardingDone && <QuickActionSheet />}
       </div>
     </div>
   );

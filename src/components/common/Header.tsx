@@ -137,121 +137,19 @@ export const Header: React.FC = () => {
             </div>
           </div>
 
-          {/* D-Day badge & Quick Controls */}
+          {/* D-Day badge only */}
           <div className="flex items-center space-x-1.5 sm:space-x-2 flex-shrink-0">
             {/* D-Day Banner */}
             <div 
               onClick={() => openProfileModal('info')}
-              className="cursor-pointer bg-gradient-to-r from-rose-500 to-pink-500 text-white px-2.5 sm:px-3.5 py-1.5 rounded-xl shadow-sm hover:shadow-md transition transform hover:scale-102 flex items-center space-x-1"
+              className="cursor-pointer bg-gradient-to-r from-rose-500 to-pink-500 text-white px-3 sm:px-4 py-1.5 rounded-2xl shadow-sm hover:shadow-md transition transform hover:scale-102 flex items-center space-x-1.5 border border-rose-400/30"
+              title="예식일 및 프로필 설정"
             >
-              <Sparkles className="w-3 h-3 text-amber-200" />
-              <span className="text-xs sm:text-sm font-black tracking-wide">
+              <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+              <span className="text-xs sm:text-sm font-black tracking-wider drop-shadow-xs">
                 {dDay > 0 ? `D-${dDay}` : dDay === 0 ? 'D-DAY' : `D+${Math.abs(dDay)}`}
               </span>
             </div>
-
-            {/* Cloud Auth & Data Preservation Button */}
-            <button
-              onClick={openAccountModal}
-              title={loggedInUser ? `로그인 계정: @${loggedInUser} (클라우드 자동 보존 중)` : '아이디/비밀번호로 내 데이터 영구 보존'}
-              className={`p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition ${
-                loggedInUser
-                  ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
-                  : 'bg-rose-50/70 border-rose-200 text-rose-700 hover:bg-rose-100'
-              }`}
-            >
-              {loggedInUser ? (
-                <>
-                  <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
-                  <span className="hidden sm:inline font-mono">@{loggedInUser}</span>
-                </>
-              ) : (
-                <>
-                  <Lock className="w-3.5 h-3.5 text-rose-500" />
-                  <span className="hidden sm:inline">계정보존</span>
-                </>
-              )}
-            </button>
-
-            {/* Quick Refresh Button */}
-            <button
-              onClick={refreshAllData}
-              title="데이터 새로고침"
-              className={`p-1.5 sm:p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition flex items-center ${
-                isSyncing ? 'animate-spin text-rose-500' : ''
-              }`}
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-            </button>
-
-            {/* Data Actions Dropdown / Tools */}
-            <div className="relative group">
-              <button
-                className="p-1.5 sm:p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition flex items-center"
-                title="데이터 백업 & 관리"
-              >
-                <Download className="w-3.5 h-3.5" />
-              </button>
-              
-              <div className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-rose-100 py-2 hidden group-hover:block hover:block z-50 animate-fadeIn">
-                <button
-                  onClick={openAccountModal}
-                  className="w-full px-4 py-2 text-left text-xs font-bold text-indigo-600 hover:bg-indigo-50 flex items-center gap-2 border-b border-slate-100"
-                >
-                  <ShieldCheck className="w-3.5 h-3.5 text-indigo-500" />
-                  계정 로그인 / 데이터 보존
-                </button>
-                <button
-                  onClick={exportAllDataJSON}
-                  className="w-full px-4 py-2 text-left text-xs font-medium text-slate-700 hover:bg-rose-50 flex items-center gap-2"
-                >
-                  <Download className="w-3.5 h-3.5 text-rose-500" />
-                  전체 데이터 백업 (JSON)
-                </button>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-full px-4 py-2 text-left text-xs font-medium text-slate-700 hover:bg-rose-50 flex items-center gap-2"
-                >
-                  <Upload className="w-3.5 h-3.5 text-rose-500" />
-                  백업 파일 불러오기
-                </button>
-                <button
-                  onClick={resetToSampleData}
-                  className="w-full px-4 py-2 text-left text-xs font-medium text-rose-600 hover:bg-rose-50 flex items-center gap-2"
-                >
-                  <RotateCcw className="w-3.5 h-3.5 text-rose-500" />
-                  초기 샘플 데이터로 복원
-                </button>
-                <button
-                  onClick={() => {
-                    if (confirm('초기 인트로 화면을 다시 보시겠습니까?')) {
-                      resetOnboarding();
-                    }
-                  }}
-                  className="w-full px-4 py-2 text-left text-xs font-medium text-indigo-600 hover:bg-indigo-50 flex items-center gap-2"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-                  초기 인트로 화면 다시보기
-                </button>
-              </div>
-            </div>
-
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileChange}
-              accept=".json"
-              className="hidden"
-            />
-
-            {/* Profile Settings */}
-            <button
-              onClick={() => openProfileModal('info')}
-              className="p-1.5 sm:p-2 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-600 transition flex items-center"
-              title="설정 (커플 정보 & 초대)"
-            >
-              <Settings className="w-3.5 h-3.5" />
-            </button>
           </div>
         </div>
       </div>

@@ -68,7 +68,6 @@ export const PartnerInviteModal: React.FC = () => {
 
       if (inviteData.weddingDate) updatePayload.weddingDate = inviteData.weddingDate;
       if (inviteData.weddingVenue) updatePayload.weddingVenue = inviteData.weddingVenue;
-      if (inviteData.weddingHallName) updatePayload.weddingHallName = inviteData.weddingHallName;
       if (inviteData.budgetGoal) updatePayload.budgetGoal = inviteData.budgetGoal;
 
       updateProfile(updatePayload);
@@ -85,7 +84,6 @@ export const PartnerInviteModal: React.FC = () => {
         myRole: myRole,
         weddingDate: inviteData.weddingDate || profile.weddingDate,
         weddingVenue: inviteData.weddingVenue || profile.weddingVenue,
-        weddingHallName: inviteData.weddingHallName || profile.weddingHallName,
         budgetGoal: inviteData.budgetGoal || profile.budgetGoal
       });
 

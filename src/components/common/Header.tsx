@@ -10,6 +10,9 @@ import {
   Upload, 
   RotateCcw, 
   Sparkles,
+  ShieldCheck,
+  Lock,
+  User,
   Users,
   UserPlus,
   Cloud,
@@ -17,6 +20,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { requestNotificationPermission } from '../../utils/notifications';
+import { userAuth } from '../../utils/userAuth';
 
 export const Header: React.FC = () => {
   const { 
@@ -27,6 +31,9 @@ export const Header: React.FC = () => {
     resetToSampleData,
     resetOnboarding,
     openProfileModal,
+    openAccountModal,
+    loggedInUser,
+    refreshAllData,
     isSyncing,
     lastSyncedAt
   } = useWedding();
@@ -143,6 +150,40 @@ export const Header: React.FC = () => {
               </span>
             </div>
 
+            {/* Cloud Auth & Data Preservation Button */}
+            <button
+              onClick={openAuthModal}
+              title={loggedInUser ? `로그인 계정: ${loggedInUser} (클라우드 보존 중)` : '아이디/비밀번호로 내 데이터 영구 보존'}
+              className={`p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition ${
+                loggedInUser
+                  ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                  : 'bg-rose-50/70 border-rose-200 text-rose-700 hover:bg-rose-100'
+              }`}
+            >
+              {loggedInUser ? (
+                <>
+                  <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
+                  <span className="hidden sm:inline font-mono">{loggedInUser}</span>
+                </>
+              ) : (
+                <>
+                  <Lock className="w-3.5 h-3.5 text-rose-500" />
+                  <span className="hidden sm:inline">계정보존</span>
+                </>
+              )}
+            </button>
+
+            {/* Quick Refresh Button */}
+            <button
+              onClick={refreshData}
+              title="데이터 새로고침"
+              className={`p-1.5 sm:p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition flex items-center ${
+                isSyncing ? 'animate-spin text-rose-500' : ''
+              }`}
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </button>
+
             {/* Notification Permission Button */}
             <button
               onClick={handleNotificationToggle}
@@ -166,6 +207,13 @@ export const Header: React.FC = () => {
               </button>
               
               <div className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-rose-100 py-2 hidden group-hover:block hover:block z-50 animate-fadeIn">
+                <button
+                  onClick={openAuthModal}
+                  className="w-full px-4 py-2 text-left text-xs font-bold text-indigo-600 hover:bg-indigo-50 flex items-center gap-2 border-b border-slate-100"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-indigo-500" />
+                  계정 로그인 / 데이터 보존
+                </button>
                 <button
                   onClick={exportAllDataJSON}
                   className="w-full px-4 py-2 text-left text-xs font-medium text-slate-700 hover:bg-rose-50 flex items-center gap-2"

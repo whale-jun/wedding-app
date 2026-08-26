@@ -35,8 +35,10 @@ import {
 import { playWeddingChime, sendLocalNotification } from '../utils/notifications';
 import { generateAiWeddingMilestones } from '../utils/aiScheduleGenerator';
 import { generateCoupleInviteCode } from '../utils/codeGenerator';
-import { realtimePairing } from '../utils/realtimePairing';
+import { realtimePairing, PairingActivity } from '../utils/realtimePairing';
 import { cloudSync } from '../utils/cloudSyncEngine';
+import { cloudAccountService } from '../utils/cloudAccountService';
+import { userAuth } from '../utils/userAuth';
 
 interface WeddingContextType {
   // Data
@@ -62,7 +64,7 @@ interface WeddingContextType {
   applyMilestoneToCalendar: (milestoneId: string) => void;
   applyAllMilestonesToCalendar: () => void;
 
-  // Actions - Profile & Couple Pairing & Onboarding & Feedback
+  // Actions - Profile & Couple Pairing & Onboarding & Account
   isOnboardingDone: boolean;
   completeOnboarding: () => void;
   resetOnboarding: () => void;
@@ -70,11 +72,25 @@ interface WeddingContextType {
   profileModalTab: 'info' | 'invite';
   openProfileModal: (tab?: 'info' | 'invite') => void;
   closeProfileModal: () => void;
+  isAccountModalOpen: boolean;
+  openAccountModal: () => void;
+  closeAccountModal: () => void;
+  isAuthModalOpen: boolean;
+  openAuthModal: () => void;
+  closeAuthModal: () => void;
+  loggedInUser: string | null;
+  registerCloudAccount: (username: string, password: string) => Promise<{ success: boolean; message: string }>;
+  loginCloudAccount: (username: string, password: string) => Promise<{ success: boolean; message: string }>;
+  logoutCloudAccount: () => void;
+  currentActivityToast: any | null;
+  clearActivityToast: () => void;
   updateProfile: (profile: Partial<CoupleProfile>) => void;
   generateNewInviteCode: () => string;
   connectPartnerWithCode: (code: string) => Promise<boolean>;
   disconnectPartner: () => void;
   checkPairingStatusNow: () => Promise<boolean>;
+  refreshData: () => Promise<void>;
+  refreshAllData: () => Promise<void>;
   dDay: number;
 
   // Actions - Budget
@@ -278,87 +294,57 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, []);
 
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [profileModalTab, setProfileModalTab] = useState<'info' | 'invite'>('info');
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
+  const [loggedInUser, setLoggedInUser] = useState<string | null>(() => cloudAccountService.getLoggedInUser());
+  const [currentActivityToast, setCurrentActivityToast] = useState<any | null>(null);
+
+  const openProfileModal = (tab: 'info' | 'invite' = 'info') => {
+    setProfileModalTab(tab);
+    setIsProfileModalOpen(true);
+  };
+
+  const closeProfileModal = () => {
+    setIsProfileModalOpen(false);
+  };
+
+  const openAccountModal = () => {
+    setIsAccountModalOpen(true);
+  };
+
+  const closeAccountModal = () => {
+    setIsAccountModalOpen(false);
+  };
+
+  const clearActivityToast = useCallback(() => {
+    setCurrentActivityToast(null);
+  }, []);
+
   // Active Room Code for cross-device realtime sync
   const activeSyncRoom = (profile.isPartnerConnected && weddingId) 
     ? weddingId 
     : (profile.inviteCode || 'WD-7729-LOVE');
 
-  // Listen for realtime pairing and data updates via cloudSync ultra-reliable engine
-  useEffect(() => {
-    if (!activeSyncRoom) return;
-
-    cloudSync.connectRoom(activeSyncRoom, (cloudState) => {
-      if (!cloudState || !cloudState.roomCode) return;
-
-      // 1. Connection Event: Partner connected or accepted
-      if (cloudState.status === 'CONNECTED' && !profile.isPartnerConnected) {
-        setIsRemoteUpdate(true);
-        const partnerName = profile.myRole === 'groom' ? cloudState.brideName : cloudState.groomName;
-
-        setProfile(prev => ({
-          ...prev,
-          isPartnerConnected: true,
-          partnerConnectedAt: new Date().toISOString(),
-          groomName: prev.myRole === 'groom' ? prev.groomName : (cloudState.groomName || prev.groomName || '신랑'),
-          brideName: prev.myRole === 'bride' ? prev.brideName : (cloudState.brideName || prev.brideName || '신부'),
-          weddingDate: cloudState.weddingDate || prev.weddingDate,
-          weddingVenue: cloudState.weddingVenue || prev.weddingVenue,
-          budgetGoal: cloudState.budgetGoal || prev.budgetGoal
-        }));
-
-        if (cloudState.budget && Array.isArray(cloudState.budget)) setBudget(cloudState.budget);
-        if (cloudState.checklist && Array.isArray(cloudState.checklist)) setChecklist(cloudState.checklist);
-        if (cloudState.events && Array.isArray(cloudState.events)) setEvents(cloudState.events);
-        if (cloudState.guests && Array.isArray(cloudState.guests)) setGuests(cloudState.guests);
-
-        setWeddingId(activeSyncRoom);
-        setLastSyncedAt(new Date().toISOString());
-        setIsOnboardingDone(true);
-        localStorage.setItem('wedding_app_onboarding_done_v1', 'true');
-        setIsProfileModalOpen(false);
-        triggerConfetti();
-        alert(`🎉 축하합니다! 상대방(${partnerName || '배우자'}님)과 커플 연결이 완료되었습니다! 💕\n두 분의 모든 일정과 예산이 썸원처럼 실시간으로 연동됩니다.`);
-        setTimeout(() => setIsRemoteUpdate(false), 300);
-      }
-
-      // 2. Realtime Live Data Sync: Checklist, Budget, Events, Guests updated by partner
-      else if (cloudState.status === 'CONNECTED' && profile.isPartnerConnected) {
-        setIsRemoteUpdate(true);
-        if (cloudState.budget && Array.isArray(cloudState.budget)) setBudget(cloudState.budget);
-        if (cloudState.checklist && Array.isArray(cloudState.checklist)) setChecklist(cloudState.checklist);
-        if (cloudState.events && Array.isArray(cloudState.events)) setEvents(cloudState.events);
-        if (cloudState.compareSections && Array.isArray(cloudState.compareSections)) setCompareSections(cloudState.compareSections);
-        if (cloudState.guests && Array.isArray(cloudState.guests)) setGuests(cloudState.guests);
-        if (cloudState.gatherings && Array.isArray(cloudState.gatherings)) setGatherings(cloudState.gatherings);
-        if (cloudState.honeymoon) setHoneymoon(cloudState.honeymoon);
-        if (cloudState.aiMilestones && Array.isArray(cloudState.aiMilestones)) setAiMilestones(cloudState.aiMilestones);
-        
-        setLastSyncedAt(new Date().toISOString());
-        setTimeout(() => setIsRemoteUpdate(false), 300);
-      }
-    });
-
-    return () => {
-      cloudSync.disconnect();
-    };
-  }, [activeSyncRoom, profile.isPartnerConnected, profile.myRole, triggerConfetti]);
-
-  // Broadcast data changes to connected partner in realtime
-  useEffect(() => {
+  // Realtime Broadcast Function with Activity Notification Metadata
+  const broadcastRealtimeUpdate = useCallback((activity?: PairingActivity) => {
     if (isRemoteUpdate || !activeSyncRoom) return;
+    const myName = profile.myRole === 'groom' ? (profile.groomName || '신랑') : (profile.brideName || '신부');
+    
+    setIsSyncing(true);
 
-    const timer = setTimeout(() => {
-      setIsSyncing(true);
-      cloudSync.pushState({
-        roomCode: activeSyncRoom,
-        status: profile.isPartnerConnected ? 'CONNECTED' : 'WAITING',
-        groomName: profile.groomName,
-        brideName: profile.brideName,
-        myRole: profile.myRole,
-        weddingDate: profile.weddingDate,
-        weddingVenue: profile.weddingVenue,
-        weddingHallName: profile.weddingHallName,
-        budgetGoal: profile.budgetGoal,
+    // 1. Send via WebSocket/PubSub with In-App Activity Alert
+    realtimePairing.publish({
+      type: 'SYNC_DATA',
+      roomCode: activeSyncRoom,
+      senderId: realtimePairing.getClientId(),
+      senderName: myName,
+      senderRole: profile.myRole || 'groom',
+      senderCode: profile.inviteCode || activeSyncRoom,
+      timestamp: Date.now(),
+      activity: activity,
+      data: {
+        profile,
         budget,
         checklist,
         events,
@@ -367,14 +353,250 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         gatherings,
         honeymoon,
         aiMilestones
-      }).finally(() => {
-        setIsSyncing(false);
-        setLastSyncedAt(new Date().toISOString());
-      });
-    }, 400);
+      }
+    }).finally(() => {
+      setIsSyncing(false);
+      setLastSyncedAt(new Date().toISOString());
+    });
 
+    // 2. CloudSync Engine Backup Mirror
+    cloudSync.pushState({
+      roomCode: activeSyncRoom,
+      status: profile.isPartnerConnected ? 'CONNECTED' : 'WAITING',
+      groomName: profile.groomName,
+      brideName: profile.brideName,
+      myRole: profile.myRole,
+      weddingDate: profile.weddingDate,
+      weddingVenue: profile.weddingVenue,
+      weddingHallName: profile.weddingHallName,
+      budgetGoal: profile.budgetGoal,
+      budget,
+      checklist,
+      events,
+      compareSections,
+      guests,
+      gatherings,
+      honeymoon,
+      aiMilestones
+    });
+
+    // 3. Cloud Account Auto-Backup
+    cloudAccountService.autoBackupIfLoggedIn({
+      profile,
+      budget,
+      checklist,
+      events,
+      compareSections,
+      guests,
+      gatherings,
+      honeymoon,
+      aiMilestones
+    });
+  }, [activeSyncRoom, isRemoteUpdate, profile, budget, checklist, events, compareSections, guests, gatherings, honeymoon, aiMilestones]);
+
+  // Listen for realtime pairing and live partner updates
+  useEffect(() => {
+    if (!activeSyncRoom) return;
+
+    realtimePairing.joinRoom(activeSyncRoom, (payload) => {
+      if (!payload || !payload.roomCode) return;
+
+      // 1. Connection Event: Partner connected
+      if (payload.type === 'PAIR_REQUEST' || payload.type === 'PAIR_ACCEPT') {
+        setIsRemoteUpdate(true);
+        const partnerName = payload.senderName || '배우자';
+
+        setProfile(prev => ({
+          ...prev,
+          isPartnerConnected: true,
+          partnerConnectedAt: new Date().toISOString(),
+          groomName: prev.myRole === 'groom' ? prev.groomName : (payload.senderRole === 'groom' ? partnerName : prev.groomName),
+          brideName: prev.myRole === 'bride' ? prev.brideName : (payload.senderRole === 'bride' ? partnerName : prev.brideName),
+        }));
+
+        if (payload.data) {
+          const d = payload.data;
+          if (d.budget && Array.isArray(d.budget)) setBudget(d.budget);
+          if (d.checklist && Array.isArray(d.checklist)) setChecklist(d.checklist);
+          if (d.events && Array.isArray(d.events)) setEvents(d.events);
+          if (d.guests && Array.isArray(d.guests)) setGuests(d.guests);
+          if (d.compareSections && Array.isArray(d.compareSections)) setCompareSections(d.compareSections);
+          if (d.honeymoon) setHoneymoon(d.honeymoon);
+        }
+
+        setWeddingId(activeSyncRoom);
+        setLastSyncedAt(new Date().toISOString());
+        setIsOnboardingDone(true);
+        localStorage.setItem('wedding_app_onboarding_done_v1', 'true');
+        setIsProfileModalOpen(false);
+        triggerConfetti();
+        setTimeout(() => setIsRemoteUpdate(false), 300);
+      }
+
+      // 2. Realtime Live Data Sync
+      else if (payload.type === 'SYNC_DATA') {
+        if (payload.data) {
+          setIsRemoteUpdate(true);
+          const d = payload.data;
+          if (d.profile) {
+            setProfile(prev => ({
+              ...prev,
+              ...d.profile,
+              myRole: prev.myRole,
+              groomName: prev.myRole === 'groom' ? prev.groomName : (d.profile.groomName || prev.groomName),
+              brideName: prev.myRole === 'bride' ? prev.brideName : (d.profile.brideName || prev.brideName),
+            }));
+          }
+          if (d.budget && Array.isArray(d.budget)) setBudget(d.budget);
+          if (d.checklist && Array.isArray(d.checklist)) setChecklist(d.checklist);
+          if (d.events && Array.isArray(d.events)) setEvents(d.events);
+          if (d.compareSections && Array.isArray(d.compareSections)) setCompareSections(d.compareSections);
+          if (d.guests && Array.isArray(d.guests)) setGuests(d.guests);
+          if (d.gatherings && Array.isArray(d.gatherings)) setGatherings(d.gatherings);
+          if (d.honeymoon) setHoneymoon(d.honeymoon);
+          if (d.aiMilestones && Array.isArray(d.aiMilestones)) setAiMilestones(d.aiMilestones);
+          
+          setLastSyncedAt(new Date().toISOString());
+
+          // Trigger Partner Activity Toast & Wedding Chime & Haptic
+          if (payload.activity) {
+            setCurrentActivityToast({
+              id: `act_${Date.now()}`,
+              senderRole: payload.senderRole || 'bride',
+              senderName: payload.senderName || (payload.senderRole === 'groom' ? '신랑님' : '신부님'),
+              title: payload.activity.title,
+              description: payload.activity.detail || payload.activity.title,
+              category: payload.activity.category,
+              timestamp: Date.now()
+            });
+
+            playWeddingChime();
+            if (typeof window !== 'undefined' && 'vibrate' in navigator) {
+              try { navigator.vibrate([80, 40, 80]); } catch (e) {}
+            }
+            sendLocalNotification(`[으ㅔ딩어픙] ${payload.senderName || '상대방'}님의 실시간 업데이트`, {
+              body: payload.activity.detail || payload.activity.title
+            });
+
+            // Auto dismiss toast after 4 seconds
+            setTimeout(() => {
+              setCurrentActivityToast(null);
+            }, 4000);
+          }
+
+          setTimeout(() => setIsRemoteUpdate(false), 300);
+        }
+      }
+    });
+
+    // CloudSync Engine Secondary Listener
+    cloudSync.connectRoom(activeSyncRoom, (cloudState) => {
+      if (!cloudState || !cloudState.roomCode) return;
+      if (cloudState.status === 'CONNECTED' && !profile.isPartnerConnected) {
+        setIsRemoteUpdate(true);
+        setProfile(prev => ({
+          ...prev,
+          isPartnerConnected: true,
+          partnerConnectedAt: new Date().toISOString(),
+          groomName: prev.myRole === 'groom' ? prev.groomName : (cloudState.groomName || prev.groomName),
+          brideName: prev.myRole === 'bride' ? prev.brideName : (cloudState.brideName || prev.brideName),
+        }));
+        if (cloudState.budget) setBudget(cloudState.budget);
+        if (cloudState.checklist) setChecklist(cloudState.checklist);
+        if (cloudState.events) setEvents(cloudState.events);
+        setWeddingId(activeSyncRoom);
+        setLastSyncedAt(new Date().toISOString());
+        setTimeout(() => setIsRemoteUpdate(false), 300);
+      }
+    });
+
+    return () => {
+      realtimePairing.leaveRoom();
+      cloudSync.disconnect();
+    };
+  }, [activeSyncRoom, profile.isPartnerConnected, triggerConfetti]);
+
+  // Cloud Account Registration (Permanent Backup)
+  const registerCloudAccount = useCallback(async (username: string, password: string) => {
+    const res = await cloudAccountService.saveAccount(username, password, {
+      profile,
+      budget,
+      checklist,
+      events,
+      compareSections,
+      guests,
+      gatherings,
+      honeymoon,
+      aiMilestones
+    });
+    if (res.success) {
+      setLoggedInUser(username.trim().toLowerCase());
+    }
+    return res;
+  }, [profile, budget, checklist, events, compareSections, guests, gatherings, honeymoon, aiMilestones]);
+
+  // Cloud Account Login (Data Restoration)
+  const loginCloudAccount = useCallback(async (username: string, password: string) => {
+    const res = await cloudAccountService.loginAccount(username, password);
+    if (res.success && res.weddingData) {
+      setIsRemoteUpdate(true);
+      const d = res.weddingData;
+      if (d.profile) setProfile(d.profile);
+      if (d.budget && Array.isArray(d.budget)) setBudget(d.budget);
+      if (d.checklist && Array.isArray(d.checklist)) setChecklist(d.checklist);
+      if (d.events && Array.isArray(d.events)) setEvents(d.events);
+      if (d.compareSections && Array.isArray(d.compareSections)) setCompareSections(d.compareSections);
+      if (d.guests && Array.isArray(d.guests)) setGuests(d.guests);
+      if (d.gatherings && Array.isArray(d.gatherings)) setGatherings(d.gatherings);
+      if (d.honeymoon) setHoneymoon(d.honeymoon);
+      if (d.aiMilestones && Array.isArray(d.aiMilestones)) setAiMilestones(d.aiMilestones);
+      
+      setLoggedInUser(username.trim().toLowerCase());
+      setIsOnboardingDone(true);
+      localStorage.setItem('wedding_app_onboarding_done_v1', 'true');
+      setTimeout(() => setIsRemoteUpdate(false), 300);
+    }
+    return res;
+  }, []);
+
+  const logoutCloudAccount = useCallback(() => {
+    cloudAccountService.logout();
+    setLoggedInUser(null);
+  }, []);
+
+  // Pull-To-Refresh / Manual Refresh Function (Refreshes both live cloud pairing and account state)
+  const refreshAllData = useCallback(async () => {
+    setIsSyncing(true);
+    try {
+      if (activeSyncRoom) {
+        await cloudSync.fetchCloudState(activeSyncRoom);
+      }
+      // Also auto-save current state to cloud account if logged in
+      cloudAccountService.autoBackupIfLoggedIn({
+        profile,
+        budget,
+        checklist,
+        events,
+        compareSections,
+        guests,
+        gatherings,
+        honeymoon,
+        aiMilestones
+      });
+      setLastSyncedAt(new Date().toISOString());
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [activeSyncRoom, profile, budget, checklist, events, compareSections, guests, gatherings, honeymoon, aiMilestones]);
+
+  // Debounced auto-broadcast on local changes
+  useEffect(() => {
+    if (isRemoteUpdate || !activeSyncRoom) return;
+    const timer = setTimeout(() => {
+      broadcastRealtimeUpdate();
+    }, 450);
     return () => clearTimeout(timer);
-  }, [profile, budget, checklist, events, compareSections, guests, gatherings, honeymoon, aiMilestones, isRemoteUpdate, activeSyncRoom]);
+  }, [profile, budget, checklist, events, compareSections, guests, gatherings, honeymoon, aiMilestones, isRemoteUpdate, activeSyncRoom, broadcastRealtimeUpdate]);
 
   // Manually check pairing status from cloud on refresh / click
   const checkPairingStatusNow = useCallback(async (): Promise<boolean> => {
@@ -416,9 +638,6 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     localStorage.setItem('wedding_app_onboarding_done_v1', JSON.stringify(isOnboardingDone));
   }, [isOnboardingDone]);
-
-  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  const [profileModalTab, setProfileModalTab] = useState<'info' | 'invite'>('info');
 
   // --- OPTIONAL FIREBASE SYNC LOGIC (Preserved as Secondary Cloud Backup) ---
   useEffect(() => {
@@ -476,15 +695,6 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return () => clearTimeout(timer);
     }
   }, [profile, budget, checklist, events, compareSections, guests, gatherings, honeymoon, aiMilestones, weddingId, isRemoteUpdate, updateRemoteData]);
-
-  const openProfileModal = (tab: 'info' | 'invite' = 'info') => {
-    setProfileModalTab(tab);
-    setIsProfileModalOpen(true);
-  };
-
-  const closeProfileModal = () => {
-    setIsProfileModalOpen(false);
-  };
 
   const completeOnboarding = () => {
     setIsOnboardingDone(true);
@@ -707,14 +917,29 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       id: `b-${Date.now()}`
     };
     setBudget(prev => [newItem, ...prev]);
+    broadcastRealtimeUpdate({
+      category: 'budget',
+      title: `예산 항목 추가: [${item.title}] 💰`,
+      detail: `${item.category} 항목이 추가되었습니다.`
+    });
   };
 
   const updateBudgetItem = (id: string, item: Partial<BudgetItem>) => {
     setBudget(prev => prev.map(b => b.id === id ? { ...b, ...item } : b));
+    broadcastRealtimeUpdate({
+      category: 'budget',
+      title: '예산 정보 수정 💰',
+      detail: '예산 항목이 업데이트되었습니다.'
+    });
   };
 
   const deleteBudgetItem = (id: string) => {
     setBudget(prev => prev.filter(b => b.id !== id));
+    broadcastRealtimeUpdate({
+      category: 'budget',
+      title: '예산 항목 삭제',
+      detail: '예산 항목이 삭제되었습니다.'
+    });
   };
 
   const loadBudgetPreset = (presetType: 'standard' | 'economy' | 'luxury') => {
@@ -725,7 +950,6 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (presetType === 'luxury') goal = 75000000;
 
     updateProfile({ budgetGoal: goal });
-    // Adjust budget list proportionally
     const multiplier = presetType === 'economy' ? 0.65 : presetType === 'luxury' ? 1.7 : 1.0;
     const newBudget = initialBudget.map(item => ({
       ...item,
@@ -737,6 +961,11 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }));
     setBudget(newBudget);
     triggerConfetti();
+    broadcastRealtimeUpdate({
+      category: 'budget',
+      title: `예산 프리셋(${presetType}) 적용 완료`,
+      detail: '예산 템플릿이 새롭게 설정되었습니다.'
+    });
   };
 
   // Checklist Actions
@@ -746,16 +975,30 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       id: `c-${Date.now()}`
     };
     setChecklist(prev => [newItem, ...prev]);
+    broadcastRealtimeUpdate({
+      category: 'checklist',
+      title: `새 체크리스트: [${item.title}] ✨`,
+      detail: '체크리스트에 새 할 일이 추가되었습니다.'
+    });
   };
 
   const updateChecklistItem = (id: string, item: Partial<ChecklistItem>) => {
     setChecklist(prev => prev.map(c => c.id === id ? { ...c, ...item } : c));
+    broadcastRealtimeUpdate({
+      category: 'checklist',
+      title: '체크리스트 수정',
+      detail: '체크리스트 항목이 업데이트되었습니다.'
+    });
   };
 
   const toggleChecklistItem = (id: string) => {
+    let toggledTitle = '';
+    let isNowCompleted = false;
     setChecklist(prev => prev.map(c => {
       if (c.id === id) {
         const nextCompleted = !c.completed;
+        toggledTitle = c.title;
+        isNowCompleted = nextCompleted;
         if (nextCompleted) {
           triggerConfetti();
         }
@@ -767,10 +1010,23 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
       return c;
     }));
+
+    if (toggledTitle) {
+      broadcastRealtimeUpdate({
+        category: 'checklist',
+        title: isNowCompleted ? `체크 완료: [${toggledTitle}] 💕` : `체크 해제: [${toggledTitle}]`,
+        detail: isNowCompleted ? '체크리스트 항목을 완료했습니다!' : '다시 진행 중으로 변경되었습니다.'
+      });
+    }
   };
 
   const deleteChecklistItem = (id: string) => {
     setChecklist(prev => prev.filter(c => c.id !== id));
+    broadcastRealtimeUpdate({
+      category: 'checklist',
+      title: '체크리스트 항목 삭제',
+      detail: '체크리스트 항목이 삭제되었습니다.'
+    });
   };
 
   // Calendar Actions
@@ -785,14 +1041,29 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         body: `${event.startDate} ${event.startTime || ''} ${event.location || ''}`
       });
     }
+    broadcastRealtimeUpdate({
+      category: 'calendar',
+      title: `새 일정 등록: [${event.title}] 📅`,
+      detail: `${event.startDate} ${event.startTime || ''} ${event.location || ''}`
+    });
   };
 
   const updateEvent = (id: string, event: Partial<CalendarEvent>) => {
     setEvents(prev => prev.map(e => e.id === id ? { ...e, ...event } : e));
+    broadcastRealtimeUpdate({
+      category: 'calendar',
+      title: `일정 업데이트: [${event.title || '일정'}] 📅`,
+      detail: '캘린더 일정이 수정되었습니다.'
+    });
   };
 
   const deleteEvent = (id: string) => {
     setEvents(prev => prev.filter(e => e.id !== id));
+    broadcastRealtimeUpdate({
+      category: 'calendar',
+      title: '캘린더 일정 삭제',
+      detail: '일정이 캘린더에서 삭제되었습니다.'
+    });
   };
 
   // Comparison Actions
@@ -1184,9 +1455,23 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         profileModalTab,
         openProfileModal,
         closeProfileModal,
+        isAccountModalOpen,
+        openAccountModal,
+        closeAccountModal,
+        isAuthModalOpen: isAccountModalOpen,
+        openAuthModal: () => setIsAccountModalOpen(true),
+        closeAuthModal: () => setIsAccountModalOpen(false),
+        loggedInUser,
+        registerCloudAccount,
+        loginCloudAccount,
+        logoutCloudAccount,
+        currentActivityToast,
+        clearActivityToast,
         connectPartnerWithCode,
         disconnectPartner,
         checkPairingStatusNow,
+        refreshData: refreshAllData,
+        refreshAllData,
         dDay,
         addBudgetItem,
         updateBudgetItem,

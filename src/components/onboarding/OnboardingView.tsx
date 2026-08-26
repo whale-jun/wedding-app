@@ -43,8 +43,6 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) =>
   const [name, setName] = useState('');
   const [role, setRole] = useState<'groom' | 'bride'>(profile.myRole || 'groom');
   const [phone, setPhone] = useState('');
-  const [partnerCodeInput, setPartnerCodeInput] = useState('');
-  const [isCopied, setIsCopied] = useState(false);
   const [isLinkCopied, setIsLinkCopied] = useState(false);
 
   // Safe active invite code & Dynamic Real URL for GitHub Pages / PWA
@@ -58,14 +56,6 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) =>
     weddingVenue: profile.weddingVenue,
     budgetGoal: profile.budgetGoal
   });
-
-  // Auto-fill pending invite code from URL parameter
-  useEffect(() => {
-    const pending = localStorage.getItem('wedding_pending_invite_code');
-    if (pending) {
-      setPartnerCodeInput(pending);
-    }
-  }, []);
 
   // AUTO ADVANCE: When partner accepts invite and connects, automatically enter main screen!
   useEffect(() => {
@@ -121,13 +111,6 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) =>
     setStep(2);
   };
 
-  // Handle Step 2: Copy Code
-  const handleCopyCode = () => {
-    navigator.clipboard.writeText(currentInviteCode);
-    setIsCopied(true);
-    setTimeout(() => setIsCopied(false), 2000);
-  };
-
   // Handle Step 2: Copy Link
   const handleCopyLink = () => {
     navigator.clipboard.writeText(inviteLink);
@@ -137,7 +120,7 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) =>
 
   // Handle Step 2: Share via Kakao / SMS
   const handleShare = async () => {
-    const text = `[으ㅔ딩어픙] ${name}님이 결혼 준비에 초대했습니다! 💕\n초대코드: ${currentInviteCode}\n아래 링크를 눌러 실시간으로 함께 결혼을 준비해보세요:\n${inviteLink}`;
+    const text = `[으ㅔ딩어픙] ${name}님이 결혼 준비에 초대했습니다! 💕\n아래 링크를 눌러 실시간으로 함께 결혼을 준비해보세요:\n${inviteLink}`;
     if (navigator.share) {
       try {
         await navigator.share({
@@ -151,24 +134,6 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) =>
     } else {
       handleCopyLink();
       alert('초대 링크가 복사되었습니다! 카카오톡이나 문자로 상대방에게 전달해주세요. 💌');
-    }
-  };
-
-  // Handle Partner Code Entry & Connect
-  const handleConnectPartner = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!partnerCodeInput.trim()) {
-      alert('상대방의 초대 코드를 입력해주세요.');
-      return;
-    }
-
-    const success = await connectPartnerWithCode(partnerCodeInput.trim());
-    if (success) {
-      triggerConfetti();
-      alert('✨ 축하합니다! 상대방과 커플 연결이 완료되었습니다. 메인 화면으로 이동합니다!');
-      onComplete();
-    } else {
-      alert('유효하지 않은 초대 코드이거나 연결에 실패했습니다. 코드를 다시 확인해주세요.');
     }
   };
 
@@ -350,63 +315,46 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) =>
                 </p>
               </div>
 
-              {/* 1. MY INVITE CODE CARD */}
-              <div className="p-4 bg-gradient-to-br from-rose-50/80 to-pink-50/80 rounded-2xl border border-rose-200 space-y-3">
-                <div className="flex items-center justify-between text-xs font-bold text-rose-800">
-                  <span>나의 커플 초대 코드</span>
-                  <button
-                    type="button"
-                    onClick={generateNewInviteCode}
-                    className="text-[10px] bg-white text-slate-600 hover:text-rose-600 px-2 py-0.5 rounded-full border border-slate-200 font-bold flex items-center gap-1 transition"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    <span>코드 재발급</span>
-                  </button>
+              {/* 1. MY INVITE LINK CARD */}
+              <div className="p-5 bg-gradient-to-br from-rose-50/90 to-pink-50/90 rounded-2xl border border-rose-200 space-y-3.5">
+                <div className="text-xs font-bold text-rose-900 flex items-center justify-between">
+                  <span>💌 커플 초대 링크 보내기</span>
+                  <span className="text-[10px] text-rose-500 font-normal">원클릭 실시간 연동</span>
                 </div>
 
-                <div className="p-3 bg-white rounded-xl border border-rose-200/80 flex items-center justify-between shadow-xs">
-                  <span className="text-base font-mono font-black text-rose-600 tracking-wider">
-                    {currentInviteCode}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleCopyCode}
-                    className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-xs font-bold flex items-center gap-1 transition"
-                  >
-                    {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{isCopied ? '복사됨' : '코드 복사'}</span>
-                  </button>
-                </div>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  카카오톡이나 문자로 초대 링크를 전송하면, 상대방이 링크를 누르는 즉시 두 분의 기기가 실시간으로 연결됩니다!
+                </p>
 
-                <div className="grid grid-cols-2 gap-2 pt-1">
+                <div className="grid grid-cols-2 gap-2.5 pt-1">
                   <button
                     type="button"
                     onClick={handleShare}
-                    className="py-2.5 px-3 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-sm transition"
+                    className="py-3 px-3 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-2xl text-xs font-black flex items-center justify-center gap-1.5 shadow-sm active:scale-98 transition"
                   >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>카톡/문자 초대</span>
+                    <Send className="w-4 h-4 text-slate-950" />
+                    <span>카톡/문자 초대장</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={handleCopyLink}
-                    className="py-2.5 px-3 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition"
+                    className="py-3 px-3 bg-slate-900 hover:bg-black text-white rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm active:scale-98 transition"
                   >
-                    {isLinkCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Link className="w-3.5 h-3.5" />}
+                    {isLinkCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Link className="w-4 h-4" />}
                     <span>{isLinkCopied ? '링크 복사됨' : '초대링크 복사'}</span>
                   </button>
                 </div>
 
                 {/* Live Waiting Status */}
-                <div className="p-3.5 rounded-xl bg-white/90 border border-rose-200 space-y-2.5">
+                <div className="p-3.5 rounded-xl bg-white/90 border border-rose-200 space-y-2.5 shadow-xs">
                   <div className="flex items-start space-x-2.5">
                     <div className="w-2 h-2 rounded-full bg-rose-500 mt-1 flex-shrink-0 animate-ping" />
                     <div className="text-[11px] text-slate-600 leading-relaxed">
                       <span className="font-bold text-rose-700 block">
-                        상대방의 초대 동의를 실시간으로 기다리고 있어요 💕
+                        상대방의 초대 수락을 실시간 대기 중입니다 💕
                       </span>
-                      상대방이 링크를 열고 성함을 입력하면, **자동으로 연동이 완료되어 메인 화면으로 이동**합니다.
+                      상대방이 링크를 열고 성함을 입력하면 즉시 자동으로 연동되어 메인 화면으로 이동합니다.
                     </div>
                   </div>
 
@@ -419,48 +367,26 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) =>
                         alert('🎉 상대방과 연동이 확인되었습니다! 메인 화면으로 이동합니다. 💕');
                         onComplete();
                       } else {
-                        alert('아직 상대방이 초대를 수락하지 않았습니다.\n상대방이 링크를 누르고 성함을 입력한 뒤 다시 확인해주세요.');
+                        alert('아직 상대방이 초대를 수락하지 않았습니다.\n상대방에게 링크를 전송한 후 다시 확인해주세요.');
                       }
                     }}
                     className="w-full py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border border-rose-200 transition"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
-                    <span>상대방 초대 수락 상태 새로고침 확인 🔄</span>
+                    <span>상대방 초대 수락 상태 새로고침 🔄</span>
                   </button>
                 </div>
               </div>
 
-              {/* 2. OR ENTER PARTNER'S CODE */}
-              <form onSubmit={handleConnectPartner} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5">
-                <div className="text-xs font-bold text-slate-700">
-                  이미 상대방에게 초대 코드를 받으셨나요?
-                </div>
-                <div className="flex space-x-2">
-                  <input
-                    type="text"
-                    value={partnerCodeInput}
-                    onChange={e => setPartnerCodeInput(e.target.value)}
-                    placeholder="예: WD-7729-LOVE"
-                    className="flex-1 px-3 py-2.5 rounded-xl border border-slate-200 text-xs font-mono font-bold uppercase bg-white outline-none focus:border-rose-400"
-                  />
-                  <button
-                    type="submit"
-                    className="px-4 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-bold shadow-sm transition whitespace-nowrap"
-                  >
-                    연결하고 시작
-                  </button>
-                </div>
-              </form>
-
-              {/* Skip / Direct Entry button */}
-              <div className="text-center pt-1">
+              {/* Start Directly Button */}
+              <div className="text-center pt-2">
                 <button
                   type="button"
                   onClick={onComplete}
-                  className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-xs font-bold transition flex items-center justify-center gap-1"
+                  className="w-full py-3.5 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white rounded-2xl text-xs font-black shadow-md hover:shadow-lg transition flex items-center justify-center gap-1.5"
                 >
-                  <span>초대 나중에 하고 메인 화면으로 이동하기</span>
-                  <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
+                  <span>결혼 준비 시작하기 (메인으로 이동)</span>
+                  <ArrowRight className="w-4 h-4 text-white" />
                 </button>
               </div>
             </div>

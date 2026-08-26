@@ -1,9 +1,17 @@
 /**
  * Robust Realtime Couple Pairing & Sync Engine (Triple Redundancy)
  * 1. ntfy.sh Public Global WebSocket & REST Pub/Sub
- * 2. Serverless KV Store Polling (Instant fallback)
+ * 2. Serverless State Polling (Instant fallback for sleep/background)
  * 3. BroadcastChannel & LocalStorage (Same-origin sync)
  */
+import { playWeddingChime, sendLocalNotification } from './notifications';
+import { triggerPartnerToast } from '../components/common/PartnerActivityToast';
+
+export interface PairingActivity {
+  category: 'checklist' | 'calendar' | 'budget' | 'profile' | 'general';
+  title: string;
+  detail?: string;
+}
 
 export interface PairingPayload {
   type: 'PAIR_REQUEST' | 'PAIR_ACCEPT' | 'SYNC_DATA' | 'PING' | 'PONG' | 'DISCONNECT';
@@ -14,6 +22,7 @@ export interface PairingPayload {
   senderCode: string;
   timestamp: number;
   data?: any;
+  activity?: PairingActivity;
 }
 
 type MessageCallback = (payload: PairingPayload) => void;
@@ -27,6 +36,7 @@ class RealtimePairingManager {
   private reconnectTimer: any = null;
   private pollInterval: any = null;
   private isDestroyed = false;
+  private lastProcessedTimestamp: number = 0;
 
   constructor() {
     this.myClientId = typeof window !== 'undefined'
@@ -36,7 +46,6 @@ class RealtimePairingManager {
     if (typeof window !== 'undefined') {
       localStorage.setItem('wedding_client_id', this.myClientId);
       
-      // 1. BroadcastChannel
       if ('BroadcastChannel' in window) {
         try {
           this.broadcastChannel = new BroadcastChannel('wedding_app_realtime_channel');
@@ -46,7 +55,6 @@ class RealtimePairingManager {
         } catch (e) {}
       }
 
-      // 2. Storage event
       window.addEventListener('storage', (e) => {
         if (e.key === 'wedding_app_relay_event' && e.newValue) {
           try {
@@ -63,7 +71,7 @@ class RealtimePairingManager {
   }
 
   /**
-   * Start listening on a specific room code (invite code)
+   * Start listening on a specific room code (invite room)
    */
   public joinRoom(roomCode: string, onMessage?: MessageCallback) {
     const formatted = roomCode.trim().toUpperCase();
@@ -73,17 +81,21 @@ class RealtimePairingManager {
       this.messageListeners.add(onMessage);
     }
 
+    if (this.activeRoom === formatted && this.ws && this.ws.readyState === WebSocket.OPEN) {
+      return;
+    }
+
     this.activeRoom = formatted;
     this.isDestroyed = false;
     this.connectWebSocket(formatted);
 
-    // 2. Serverless KV polling fallback (Checks every 1.5s for partner acceptance)
+    // Continuous 1.2s rapid polling fallback (catches updates when phone screen turns on or WS disconnects)
     if (this.pollInterval) clearInterval(this.pollInterval);
     this.pollInterval = setInterval(() => {
       if (this.activeRoom && !this.isDestroyed) {
-        this.checkKvRelay(this.activeRoom);
+        this.pollRemoteCache(this.activeRoom);
       }
-    }, 1500);
+    }, 1200);
   }
 
   public addListener(cb: MessageCallback) {
@@ -98,7 +110,7 @@ class RealtimePairingManager {
   }
 
   /**
-   * Connect to WebSocket endpoint
+   * Connect to public ntfy.sh WebSocket endpoint
    */
   private connectWebSocket(roomCode: string) {
     if (this.isDestroyed || typeof window === 'undefined') return;
@@ -129,6 +141,10 @@ class RealtimePairingManager {
         } catch (e) {}
       };
 
+      this.ws.onerror = () => {
+        // Handled silently
+      };
+
       this.ws.onclose = () => {
         if (!this.isDestroyed && this.activeRoom) {
           if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
@@ -136,9 +152,39 @@ class RealtimePairingManager {
             if (this.activeRoom && !this.isDestroyed) {
               this.connectWebSocket(this.activeRoom);
             }
-          }, 3000);
+          }, 2500);
         }
       };
+    } catch (e) {}
+  }
+
+  /**
+   * Fast Remote Polling Fallback
+   */
+  private async pollRemoteCache(roomCode: string) {
+    const topic = `wedding_sync_${roomCode.replace(/[^A-Z0-9]/gi, '_').toLowerCase()}`;
+    try {
+      const res = await fetch(`https://ntfy.sh/${topic}/json?poll=1&since=all`, {
+        cache: 'no-store'
+      });
+      if (res.ok) {
+        const text = await res.text();
+        const lines = text.trim().split('\n');
+        for (let i = lines.length - 1; i >= 0; i--) {
+          try {
+            const raw = JSON.parse(lines[i]);
+            if (raw.event === 'message' && raw.message) {
+              const payload: PairingPayload = JSON.parse(raw.message);
+              if (payload.roomCode.toUpperCase() === roomCode.toUpperCase()) {
+                if (payload.timestamp > this.lastProcessedTimestamp && payload.senderId !== this.myClientId) {
+                  this.handleIncomingRaw(payload);
+                }
+                return;
+              }
+            }
+          } catch (e) {}
+        }
+      }
     } catch (e) {}
   }
 
@@ -146,7 +192,9 @@ class RealtimePairingManager {
    * Publish payload across all available channels
    */
   public async publish(payload: PairingPayload) {
-    // 1. BroadcastChannel (Same device tabs)
+    payload.timestamp = Date.now();
+
+    // 1. BroadcastChannel (Same browser tabs)
     if (this.broadcastChannel) {
       try {
         this.broadcastChannel.postMessage(payload);
@@ -161,10 +209,7 @@ class RealtimePairingManager {
       }));
     } catch (e) {}
 
-    // 3. Serverless KV Storage (For instant cross-device pickup)
-    this.saveKvRelay(payload.roomCode, payload);
-
-    // 4. ntfy.sh HTTP POST Publish (Worldwide WebSocket delivery)
+    // 3. ntfy.sh HTTP POST Publish (Worldwide WebSocket & REST delivery)
     const topic = `wedding_sync_${payload.roomCode.replace(/[^A-Z0-9]/gi, '_').toLowerCase()}`;
     try {
       await fetch(`https://ntfy.sh/${topic}`, {
@@ -179,27 +224,8 @@ class RealtimePairingManager {
     } catch (err) {}
   }
 
-  private async saveKvRelay(roomCode: string, payload: PairingPayload) {
-    try {
-      // Local mirror
-      localStorage.setItem(`wedding_kv_${roomCode}`, JSON.stringify(payload));
-    } catch (e) {}
-  }
-
-  private async checkKvRelay(roomCode: string) {
-    try {
-      const local = localStorage.getItem(`wedding_kv_${roomCode}`);
-      if (local) {
-        const parsed = JSON.parse(local);
-        if (parsed.senderId !== this.myClientId) {
-          this.handleIncomingRaw(parsed);
-        }
-      }
-    } catch (e) {}
-  }
-
   /**
-   * Handle incoming raw message and notify listeners
+   * Handle incoming raw message and notify listeners + trigger alarms
    */
   private handleIncomingRaw(payload: PairingPayload) {
     if (!payload || !payload.roomCode || !payload.type) return;
@@ -212,6 +238,29 @@ class RealtimePairingManager {
     // Check if room matches
     if (this.activeRoom && payload.roomCode.toUpperCase() !== this.activeRoom.toUpperCase()) {
       return;
+    }
+
+    // Deduplicate older timestamps
+    if (payload.timestamp && payload.timestamp <= this.lastProcessedTimestamp) {
+      return;
+    }
+    this.lastProcessedTimestamp = payload.timestamp || Date.now();
+
+    // Trigger In-App Notification Toast and Chime if activity is present
+    if (payload.activity) {
+      triggerPartnerToast({
+        id: `act_${Date.now()}`,
+        senderName: payload.senderName,
+        senderRole: payload.senderRole,
+        category: payload.activity.category,
+        title: payload.activity.title,
+        detail: payload.activity.detail,
+        timestamp: payload.timestamp
+      });
+      playWeddingChime();
+      sendLocalNotification(`[웨딩어플] ${payload.senderName || '배우자'}님의 알림`, {
+        body: `${payload.activity.title} ${payload.activity.detail || ''}`
+      });
     }
 
     // Dispatch to listeners
@@ -240,7 +289,7 @@ class RealtimePairingManager {
 export const realtimePairing = new RealtimePairingManager();
 
 /**
- * Generate a smart shareable URL containing invitation code & compressed basic profile
+ * Generate a smart shareable URL containing invitation room & compressed basic profile
  */
 export function buildInviteUrl(params: {
   code: string;
@@ -249,7 +298,6 @@ export function buildInviteUrl(params: {
   myRole?: 'groom' | 'bride';
   weddingDate?: string;
   weddingVenue?: string;
-  weddingHallName?: string;
   budgetGoal?: number;
 }): string {
   const origin = typeof window !== 'undefined' 
@@ -264,7 +312,6 @@ export function buildInviteUrl(params: {
   if (params.brideName) searchParams.set('bride', params.brideName);
   if (params.weddingDate) searchParams.set('date', params.weddingDate);
   if (params.weddingVenue) searchParams.set('venue', params.weddingVenue);
-  if (params.weddingHallName) searchParams.set('hall', params.weddingHallName);
   if (params.budgetGoal) searchParams.set('budget', String(params.budgetGoal));
 
   return `${origin}?${searchParams.toString()}`;
@@ -280,7 +327,6 @@ export function parseInviteFromUrl(): {
   brideName: string | null;
   weddingDate: string | null;
   weddingVenue: string | null;
-  weddingHallName: string | null;
   budgetGoal: number | null;
 } | null {
   if (typeof window === 'undefined') return null;
@@ -296,7 +342,6 @@ export function parseInviteFromUrl(): {
     brideName: params.get('bride'),
     weddingDate: params.get('date'),
     weddingVenue: params.get('venue'),
-    weddingHallName: params.get('hall'),
     budgetGoal: params.get('budget') ? Number(params.get('budget')) : null
   };
 }

@@ -184,19 +184,6 @@ export const Header: React.FC = () => {
               <RefreshCw className="w-3.5 h-3.5" />
             </button>
 
-            {/* Notification Permission Button */}
-            <button
-              onClick={handleNotificationToggle}
-              title={hasNotification ? '일정 알림 활성화됨' : '일정 브라우저 알림 켜기'}
-              className={`p-1.5 sm:p-2 rounded-xl border transition text-xs flex items-center ${
-                hasNotification
-                  ? 'bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100'
-                  : 'bg-slate-50 text-slate-400 border-slate-200 hover:text-slate-600'
-              }`}
-            >
-              {hasNotification ? <Bell className="w-3.5 h-3.5" /> : <BellOff className="w-3.5 h-3.5" />}
-            </button>
-
             {/* Data Actions Dropdown / Tools */}
             <div className="relative group">
               <button

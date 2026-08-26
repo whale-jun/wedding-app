@@ -32,7 +32,7 @@ import {
   initialGatherings,
   initialHoneymoon
 } from '../utils/mockData';
-import { playWeddingChime, sendLocalNotification } from '../utils/notifications';
+import { playWeddingChime, sendLocalNotification, requestNotificationPermission } from '../utils/notifications';
 import { generateAiWeddingMilestones } from '../utils/aiScheduleGenerator';
 import { generateCoupleInviteCode } from '../utils/codeGenerator';
 import { realtimePairing, PairingActivity } from '../utils/realtimePairing';
@@ -294,6 +294,16 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, []);
 
+  // Auto-request notification permission on app entry (like native apps)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+        requestNotificationPermission();
+      }
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, []);
+
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [profileModalTab, setProfileModalTab] = useState<'info' | 'invite'>('info');
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
@@ -321,10 +331,8 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCurrentActivityToast(null);
   }, []);
 
-  // Active Room Code for cross-device realtime sync
-  const activeSyncRoom = (profile.isPartnerConnected && weddingId) 
-    ? weddingId 
-    : (profile.inviteCode || 'WD-7729-LOVE');
+  // Active Room Code for cross-device realtime sync (Unified single room code)
+  const activeSyncRoom = (profile.inviteCode || weddingId || 'WD-7729-LOVE').trim().toUpperCase();
 
   // Realtime Broadcast Function with Activity Notification Metadata
   const broadcastRealtimeUpdate = useCallback((activity?: PairingActivity) => {
@@ -489,9 +497,11 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     });
 
-    // CloudSync Engine Secondary Listener
+    // CloudSync Engine Secondary Listener (Handles background sync and recovery)
     cloudSync.connectRoom(activeSyncRoom, (cloudState) => {
       if (!cloudState || !cloudState.roomCode) return;
+
+      // 1. Connection Event: Partner connected
       if (cloudState.status === 'CONNECTED' && !profile.isPartnerConnected) {
         setIsRemoteUpdate(true);
         setProfile(prev => ({
@@ -501,10 +511,31 @@ export const WeddingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           groomName: prev.myRole === 'groom' ? prev.groomName : (cloudState.groomName || prev.groomName),
           brideName: prev.myRole === 'bride' ? prev.brideName : (cloudState.brideName || prev.brideName),
         }));
-        if (cloudState.budget) setBudget(cloudState.budget);
-        if (cloudState.checklist) setChecklist(cloudState.checklist);
-        if (cloudState.events) setEvents(cloudState.events);
+        if (cloudState.budget && Array.isArray(cloudState.budget)) setBudget(cloudState.budget);
+        if (cloudState.checklist && Array.isArray(cloudState.checklist)) setChecklist(cloudState.checklist);
+        if (cloudState.events && Array.isArray(cloudState.events)) setEvents(cloudState.events);
+        if (cloudState.guests && Array.isArray(cloudState.guests)) setGuests(cloudState.guests);
+        if (cloudState.compareSections && Array.isArray(cloudState.compareSections)) setCompareSections(cloudState.compareSections);
+        if (cloudState.gatherings && Array.isArray(cloudState.gatherings)) setGatherings(cloudState.gatherings);
+        if (cloudState.honeymoon) setHoneymoon(cloudState.honeymoon);
+        if (cloudState.aiMilestones && Array.isArray(cloudState.aiMilestones)) setAiMilestones(cloudState.aiMilestones);
         setWeddingId(activeSyncRoom);
+        setLastSyncedAt(new Date().toISOString());
+        setTimeout(() => setIsRemoteUpdate(false), 300);
+      }
+      
+      // 2. Live Data Sync Event: Checklist, Calendar, Budget, Guests modified by partner!
+      else if (cloudState.status === 'CONNECTED' && profile.isPartnerConnected) {
+        setIsRemoteUpdate(true);
+        if (cloudState.budget && Array.isArray(cloudState.budget)) setBudget(cloudState.budget);
+        if (cloudState.checklist && Array.isArray(cloudState.checklist)) setChecklist(cloudState.checklist);
+        if (cloudState.events && Array.isArray(cloudState.events)) setEvents(cloudState.events);
+        if (cloudState.guests && Array.isArray(cloudState.guests)) setGuests(cloudState.guests);
+        if (cloudState.compareSections && Array.isArray(cloudState.compareSections)) setCompareSections(cloudState.compareSections);
+        if (cloudState.gatherings && Array.isArray(cloudState.gatherings)) setGatherings(cloudState.gatherings);
+        if (cloudState.honeymoon) setHoneymoon(cloudState.honeymoon);
+        if (cloudState.aiMilestones && Array.isArray(cloudState.aiMilestones)) setAiMilestones(cloudState.aiMilestones);
+        
         setLastSyncedAt(new Date().toISOString());
         setTimeout(() => setIsRemoteUpdate(false), 300);
       }

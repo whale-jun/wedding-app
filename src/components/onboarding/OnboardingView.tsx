@@ -4,16 +4,18 @@ import {
   Heart,
   Sparkles,
   ArrowRight,
-  Copy,
-  Check,
   Send,
   Link,
-  Smartphone,
+  Check,
   CheckCircle2,
   Lock,
   User,
   Phone,
-  RotateCcw
+  RotateCcw,
+  ShieldCheck,
+  ArrowLeft,
+  Calendar,
+  DollarSign
 } from 'lucide-react';
 import { generateCoupleInviteCode } from '../../utils/codeGenerator';
 import { buildInviteUrl } from '../../utils/realtimePairing';
@@ -27,22 +29,26 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) =>
   const { 
     profile, 
     updateProfile, 
-    generateNewInviteCode,
-    connectPartnerWithCode, 
     checkPairingStatusNow,
+    loginCloudAccount,
     triggerConfetti 
   } = useWedding();
 
-  // Animation sequence states: 'form' (AppSplash handles app opening)
-  const [animStage, setAnimStage] = useState<'text' | 'ring-center' | 'ring-top' | 'form'>('form');
-  
-  // Step in form: 1 (profile input: name, role, phone) -> 2 (couple invite / enter code)
-  const [step, setStep] = useState<1 | 2>(1);
+  // Onboarding View Modes:
+  // 'start' (Choice: Start New vs Login) -> 'login' (ID/PW Login) -> 'form' (Step 1 info) -> 'invite' (Step 2 invite)
+  const [viewMode, setViewMode] = useState<'start' | 'login' | 'form' | 'invite'>('start');
 
-  // Form states
+  // Login form states
+  const [loginId, setLoginId] = useState('');
+  const [loginPw, setLoginPw] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState('');
+
+  // Step 1 Profile states
   const [name, setName] = useState('');
   const [role, setRole] = useState<'groom' | 'bride'>(profile.myRole || 'groom');
   const [phone, setPhone] = useState('');
+  const [weddingDate, setWeddingDate] = useState(profile.weddingDate || '2026-11-21');
   const [isLinkCopied, setIsLinkCopied] = useState(false);
 
   // Safe active invite code & Dynamic Real URL for GitHub Pages / PWA
@@ -52,7 +58,7 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) =>
     myRole: role,
     groomName: role === 'groom' ? name : profile.groomName,
     brideName: role === 'bride' ? name : profile.brideName,
-    weddingDate: profile.weddingDate,
+    weddingDate: weddingDate,
     weddingVenue: profile.weddingVenue,
     budgetGoal: profile.budgetGoal
   });
@@ -65,332 +71,443 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) =>
     }
   }, [profile.isPartnerConnected, onComplete, triggerConfetti]);
 
-  // Handle Step 1 Submission
+  // Handle Login Submission
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginLoading(true);
+    setLoginError('');
+
+    try {
+      const res = await loginCloudAccount(loginId, loginPw);
+      if (res.success) {
+        triggerConfetti();
+        alert('🎉 환영합니다! 기존 결혼 준비 데이터를 성공적으로 복원했습니다. 💕');
+        onComplete();
+      } else {
+        setLoginError(res.message || '아이디 또는 비밀번호를 다시 확인해주세요.');
+      }
+    } catch (err) {
+      setLoginError('로그인 처리 중 오류가 발생했습니다.');
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  // Handle Step 1 (Info Input) Submission
   const handleProfileSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
       alert('이름을 입력해주세요.');
       return;
     }
-    if (!phone.trim()) {
-      alert('전화번호를 입력해주세요.');
-      return;
-    }
 
     const codeToUse = profile.inviteCode || generateCoupleInviteCode();
+    
+    // Save to global context & local storage
+    updateProfile({
+      myRole: role,
+      groomName: role === 'groom' ? name.trim() : profile.groomName,
+      brideName: role === 'bride' ? name.trim() : profile.brideName,
+      weddingDate: weddingDate,
+      inviteCode: codeToUse
+    });
 
-    if (role === 'groom') {
-      updateProfile({
-        groomName: name.trim(),
-        myRole: 'groom',
-        inviteCode: codeToUse
-      });
-      cloudSync.connectRoom(codeToUse);
-      cloudSync.pushState({
-        roomCode: codeToUse,
-        status: 'WAITING',
-        groomName: name.trim(),
-        myRole: 'groom'
-      });
-    } else {
-      updateProfile({
-        brideName: name.trim(),
-        myRole: 'bride',
-        inviteCode: codeToUse
-      });
-      cloudSync.connectRoom(codeToUse);
-      cloudSync.pushState({
-        roomCode: codeToUse,
-        status: 'WAITING',
-        brideName: name.trim(),
-        myRole: 'bride'
-      });
+    // Register initial waiting state in Cloud Sync Room
+    cloudSync.connectRoom(codeToUse);
+    cloudSync.pushState({
+      roomCode: codeToUse,
+      status: 'WAITING',
+      groomName: role === 'groom' ? name.trim() : undefined,
+      brideName: role === 'bride' ? name.trim() : undefined,
+      myRole: role,
+      weddingDate: weddingDate
+    });
+
+    setViewMode('invite');
+  };
+
+  // Handle Copy Link
+  const handleCopyLink = async () => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(inviteLink);
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = inviteLink;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      setIsLinkCopied(true);
+      setTimeout(() => setIsLinkCopied(false), 2500);
+    } catch (err) {
+      prompt("아래 초대 링크를 복사하여 상대방에게 전달해주세요:", inviteLink);
     }
-
-    triggerConfetti();
-    setStep(2);
   };
 
-  // Handle Step 2: Copy Link
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(inviteLink);
-    setIsLinkCopied(true);
-    setTimeout(() => setIsLinkCopied(false), 2000);
-  };
-
-  // Handle Step 2: Share via Kakao / SMS
+  // Handle Kakao / SMS Share
   const handleShare = async () => {
-    const text = `[으ㅔ딩어픙] ${name}님이 결혼 준비에 초대했습니다! 💕\n아래 링크를 눌러 실시간으로 함께 결혼을 준비해보세요:\n${inviteLink}`;
+    const shareText = `💍 [으ㅔ딩어픙] ${name || (role === 'groom' ? '신랑' : '신부')}님이 당신을 결혼 준비 메이트로 초대했습니다!\n\n아래 링크를 누르면 두 분의 폰이 실시간으로 연결되어 함께 예산, 체크리스트, 일정을 관리할 수 있습니다 💕\n${inviteLink}`;
+    
     if (navigator.share) {
       try {
         await navigator.share({
-          title: '으ㅔ딩어픙 커플 초대장',
-          text,
+          title: '으ㅔ딩어픙 - 커플 결혼 준비 초대장',
+          text: shareText,
           url: inviteLink,
         });
-      } catch (err) {
-        handleCopyLink();
-      }
+      } catch (e) {}
     } else {
       handleCopyLink();
-      alert('초대 링크가 복사되었습니다! 카카오톡이나 문자로 상대방에게 전달해주세요. 💌');
+      alert('초대 링크가 복사되었습니다! 카카오톡이나 문자로 상대방에게 전달해주세요.');
     }
   };
 
   return (
     <div className="fixed inset-0 z-50 bg-gradient-to-b from-[#ffe4e6] via-[#fff1f2] to-[#faf7f5] flex flex-col justify-center items-center p-4 sm:p-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] overflow-y-auto select-none">
-      
-      {/* BACKGROUND FLOATING DECORATIONS */}
+      {/* Background Floating Soft Glows */}
       <div className="absolute top-10 left-10 w-48 h-48 rounded-full bg-rose-300/20 blur-3xl pointer-events-none animate-pulse" />
       <div className="absolute bottom-10 right-10 w-64 h-64 rounded-full bg-pink-300/25 blur-3xl pointer-events-none animate-pulse" />
 
-      {/* STAGE 1: "Will you marry me?" text */}
-      {animStage === 'text' && (
-        <div className="text-center space-y-4 animate-fadeIn">
-          <div className="inline-flex items-center space-x-1.5 px-4 py-1.5 rounded-full bg-white/80 backdrop-blur shadow-xs text-xs font-semibold text-rose-500 border border-rose-100">
-            <Heart className="w-3.5 h-3.5 fill-rose-400 text-rose-400 animate-pulse" />
-            <span>A New Beginning</span>
-          </div>
-
-          <h1 
-            className="text-4xl sm:text-5xl md:text-6xl font-serif tracking-tight text-slate-800 drop-shadow-xs"
-            style={{ fontFamily: "'Playfair Display', 'Nanum Myeongjo', serif", fontStyle: 'italic' }}
-          >
-            Will you marry me?
-          </h1>
-
-          <p className="text-sm text-slate-500 font-light tracking-wide">
-            두 사람의 가장 빛나는 순간을 함께합니다
-          </p>
-        </div>
-      )}
-
-      {/* STAGE 2: Ring in Center */}
-      {animStage === 'ring-center' && (
-        <div className="text-center space-y-4 animate-scaleUp">
-          <div className="w-24 h-24 sm:w-28 sm:h-28 mx-auto rounded-full bg-gradient-to-tr from-rose-400 via-pink-400 to-rose-300 p-1 shadow-2xl flex items-center justify-center animate-bounce">
-            <div className="w-full h-full bg-white rounded-full flex items-center justify-center shadow-inner">
-              <span className="text-5xl sm:text-6xl filter drop-shadow-md">💍</span>
-            </div>
-          </div>
-
-          <div className="space-y-1 animate-fadeIn">
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-800">
-              으ㅔ딩어픙
-            </h2>
-            <p className="text-xs text-rose-500 font-semibold tracking-wider">
-              AI 스마트 커플 결혼 준비 메이트
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* STAGE 3 & 4: Form View with Ring Anchored at Top */}
-      {(animStage === 'ring-top' || animStage === 'form') && (
-        <div className="w-full max-w-md my-auto space-y-4 animate-fadeIn">
-          
-          {/* Top Logo Badge (Ring at Top) */}
-          <div className="text-center space-y-1.5 flex flex-col items-center">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-rose-500 via-pink-500 to-rose-400 p-0.5 shadow-lg flex items-center justify-center">
-              <div className="w-full h-full bg-white rounded-[14px] flex items-center justify-center">
-                <span className="text-2xl">💍</span>
+      {/* ─────────────────────────────────────────────────────────────
+          1. START SCREEN (Choice: Start New vs Login)
+      ───────────────────────────────────────────────────────────── */}
+      {viewMode === 'start' && (
+        <div className="relative z-10 w-full max-w-sm bg-white/95 backdrop-blur-xl rounded-[32px] shadow-2xl border border-rose-100 p-6 sm:p-7 space-y-6 animate-scaleUp text-center">
+          {/* Logo & Ring */}
+          <div className="space-y-3">
+            <div className="w-18 h-18 rounded-3xl bg-gradient-to-tr from-rose-500 via-pink-500 to-rose-400 p-0.5 shadow-lg shadow-rose-200/80 mx-auto flex items-center justify-center transform hover:scale-105 transition">
+              <div className="w-full h-full bg-white/95 rounded-[22px] flex items-center justify-center text-3xl">
+                💍
               </div>
             </div>
 
             <div>
-              <h2 className="text-lg sm:text-xl font-black text-slate-800">
+              <span className="text-[10px] uppercase tracking-[0.25em] font-bold text-rose-500 block">
+                AI Couple Wedding Planner
+              </span>
+              <h2 className="text-2xl font-black text-slate-800 tracking-tight mt-0.5">
                 으ㅔ딩어픙
               </h2>
-              <p className="text-[11px] text-rose-500 font-semibold">
-                {step === 1 ? 'Step 1. 내 정보 입력하기' : 'Step 2. 사랑하는 상대방 초대하기'}
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                가장 완벽하고 설레는 둘만의 결혼 준비 메이트
               </p>
             </div>
           </div>
 
-          {/* STEP 1: MY PROFILE FORM */}
-          {step === 1 && (
-            <div className="bg-white/95 backdrop-blur-md rounded-[32px] p-6 sm:p-7 shadow-2xl border border-rose-100/80 space-y-5">
-              <div className="space-y-1 border-b border-slate-100 pb-3">
-                <h3 className="text-base font-extrabold text-slate-800">
-                  반가워요! 당신의 정보를 알려주세요 💕
-                </h3>
-                <p className="text-xs text-slate-500">
-                  결혼 준비를 함께할 프로필을 설정합니다.
-                </p>
-              </div>
+          {/* Action Buttons */}
+          <div className="space-y-3 pt-2">
+            {/* Start New */}
+            <button
+              type="button"
+              onClick={() => setViewMode('form')}
+              className="w-full py-4 bg-gradient-to-r from-rose-500 via-pink-500 to-rose-600 hover:from-rose-600 hover:to-pink-600 text-white rounded-2xl text-sm font-black shadow-lg shadow-rose-200 active:scale-98 transition flex items-center justify-center gap-2 group"
+            >
+              <Sparkles className="w-4 h-4 text-amber-200" />
+              <span>새로 시작하기 (정보 입력)</span>
+              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition" />
+            </button>
 
-              <form onSubmit={handleProfileSubmit} className="space-y-4">
-                {/* 1. Role Selection: Groom vs Bride */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                    <User className="w-3.5 h-3.5 text-rose-500" />
-                    본인의 역할을 선택해주세요
-                  </label>
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <button
-                      type="button"
-                      onClick={() => setRole('groom')}
-                      className={`py-3 px-3 rounded-2xl font-bold text-xs flex flex-col items-center justify-center space-y-1 border-2 transition-all ${
-                        role === 'groom'
-                          ? 'border-rose-500 bg-rose-50/70 text-rose-700 shadow-sm ring-2 ring-rose-200'
-                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
-                      <span className="text-2xl">🤵</span>
-                      <span>저는 신랑입니다</span>
-                    </button>
+            {/* Login Existing Account */}
+            <button
+              type="button"
+              onClick={() => setViewMode('login')}
+              className="w-full py-3.5 bg-slate-900 hover:bg-black text-white rounded-2xl text-xs font-black shadow-md active:scale-98 transition flex items-center justify-center gap-2"
+            >
+              <Lock className="w-4 h-4 text-rose-400" />
+              <span>기존 계정으로 로그인 (데이터 복원)</span>
+            </button>
+          </div>
 
-                    <button
-                      type="button"
-                      onClick={() => setRole('bride')}
-                      className={`py-3 px-3 rounded-2xl font-bold text-xs flex flex-col items-center justify-center space-y-1 border-2 transition-all ${
-                        role === 'bride'
-                          ? 'border-rose-500 bg-rose-50/70 text-rose-700 shadow-sm ring-2 ring-rose-200'
-                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
-                      <span className="text-2xl">👰</span>
-                      <span>저는 신부입니다</span>
-                    </button>
-                  </div>
-                </div>
+          <div className="pt-2 border-t border-slate-100 flex items-center justify-center space-x-1.5 text-[11px] text-slate-400">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+            <span>기기 변경 시에도 아이디로 언제든 100% 복원 가능</span>
+          </div>
+        </div>
+      )}
 
-                {/* 2. Name Input */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
-                    <span>이름</span>
-                    <span className="text-[11px] text-rose-500 font-normal">
-                      {role === 'groom' ? '신랑님 성함' : '신부님 성함'}
-                    </span>
-                  </label>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={e => setName(e.target.value)}
-                    placeholder="성함을 작성해주세요"
-                    className="w-full px-4 py-3 rounded-2xl border border-slate-200 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 outline-none text-sm font-semibold bg-slate-50/50"
-                    required
-                  />
-                </div>
+      {/* ─────────────────────────────────────────────────────────────
+          2. LOGIN SCREEN (ID/PW Restore)
+      ───────────────────────────────────────────────────────────── */}
+      {viewMode === 'login' && (
+        <div className="relative z-10 w-full max-w-sm bg-white/95 backdrop-blur-xl rounded-[32px] shadow-2xl border border-rose-100 p-6 sm:p-7 space-y-5 animate-scaleUp">
+          {/* Header with Back Button */}
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <button
+              type="button"
+              onClick={() => setViewMode('start')}
+              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div className="text-center flex-1 pr-6">
+              <h3 className="text-base font-black text-slate-800 tracking-tight">
+                계정 로그인
+              </h3>
+              <p className="text-[11px] text-slate-400">
+                기존에 저장해둔 결혼 준비 데이터를 복원합니다
+              </p>
+            </div>
+          </div>
 
-                {/* 3. Phone Input */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                    <Phone className="w-3.5 h-3.5 text-rose-500" />
-                    전화번호
-                  </label>
-                  <input
-                    type="tel"
-                    value={phone}
-                    onChange={e => setPhone(e.target.value)}
-                    placeholder="010-1234-5678 (- 없이 입력 가능)"
-                    className="w-full px-4 py-3 rounded-2xl border border-slate-200 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 outline-none text-sm font-medium bg-slate-50/50"
-                    required
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full py-3.5 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white rounded-2xl text-sm font-extrabold shadow-lg hover:shadow-xl transition flex items-center justify-center gap-2 mt-2"
-                >
-                  <span>다음: 상대방 초대하기</span>
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-              </form>
+          {loginError && (
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
+              {loginError}
             </div>
           )}
 
-          {/* STEP 2: COUPLE INVITE & PAIRING CODE */}
-          {step === 2 && (
-            <div className="bg-white/95 backdrop-blur-md rounded-[32px] p-6 sm:p-7 shadow-2xl border border-rose-100/80 space-y-5 animate-fadeIn">
-              <div className="space-y-1 border-b border-slate-100 pb-3 text-center">
-                <div className="inline-flex items-center space-x-1 text-xs font-bold text-rose-600 bg-rose-50 px-3 py-1 rounded-full mb-1">
-                  <span>{name} {role === 'groom' ? '신랑님' : '신부님'} 환영해요! 🎉</span>
-                </div>
-                <h3 className="text-base font-extrabold text-slate-800">
-                  {role === 'groom' ? '신부님을 초대해보세요 💕' : '신랑님을 초대해보세요 💕'}
-                </h3>
-                <p className="text-xs text-slate-500 leading-relaxed">
-                  초대 링크를 보내 함께 결혼 일정을 실시간으로 관리하세요!
-                </p>
+          <form onSubmit={handleLoginSubmit} className="space-y-3.5">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-700">아이디</label>
+              <div className="relative">
+                <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                <input
+                  type="text"
+                  value={loginId}
+                  onChange={e => setLoginId(e.target.value)}
+                  placeholder="등록했던 아이디 입력"
+                  className="w-full pl-10 pr-3.5 py-3 rounded-xl border border-slate-200 text-xs font-semibold outline-none focus:border-rose-400"
+                  required
+                />
               </div>
+            </div>
 
-              {/* 1. MY INVITE LINK CARD */}
-              <div className="p-5 bg-gradient-to-br from-rose-50/90 to-pink-50/90 rounded-2xl border border-rose-200 space-y-3.5">
-                <div className="text-xs font-bold text-rose-900 flex items-center justify-between">
-                  <span>💌 커플 초대 링크 보내기</span>
-                  <span className="text-[10px] text-rose-500 font-normal">원클릭 실시간 연동</span>
-                </div>
-
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  카카오톡이나 문자로 초대 링크를 전송하면, 상대방이 링크를 누르는 즉시 두 분의 기기가 실시간으로 연결됩니다!
-                </p>
-
-                <div className="grid grid-cols-2 gap-2.5 pt-1">
-                  <button
-                    type="button"
-                    onClick={handleShare}
-                    className="py-3 px-3 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-2xl text-xs font-black flex items-center justify-center gap-1.5 shadow-sm active:scale-98 transition"
-                  >
-                    <Send className="w-4 h-4 text-slate-950" />
-                    <span>카톡/문자 초대장</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleCopyLink}
-                    className="py-3 px-3 bg-slate-900 hover:bg-black text-white rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm active:scale-98 transition"
-                  >
-                    {isLinkCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Link className="w-4 h-4" />}
-                    <span>{isLinkCopied ? '링크 복사됨' : '초대링크 복사'}</span>
-                  </button>
-                </div>
-
-                {/* Live Waiting Status */}
-                <div className="p-3.5 rounded-xl bg-white/90 border border-rose-200 space-y-2.5 shadow-xs">
-                  <div className="flex items-start space-x-2.5">
-                    <div className="w-2 h-2 rounded-full bg-rose-500 mt-1 flex-shrink-0 animate-ping" />
-                    <div className="text-[11px] text-slate-600 leading-relaxed">
-                      <span className="font-bold text-rose-700 block">
-                        상대방의 초대 수락을 실시간 대기 중입니다 💕
-                      </span>
-                      상대방이 링크를 열고 성함을 입력하면 즉시 자동으로 연동되어 메인 화면으로 이동합니다.
-                    </div>
-                  </div>
-
-                  {/* Manual Refresh Status Button */}
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const connected = await checkPairingStatusNow();
-                      if (connected) {
-                        alert('🎉 상대방과 연동이 확인되었습니다! 메인 화면으로 이동합니다. 💕');
-                        onComplete();
-                      } else {
-                        alert('아직 상대방이 초대를 수락하지 않았습니다.\n상대방에게 링크를 전송한 후 다시 확인해주세요.');
-                      }
-                    }}
-                    className="w-full py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border border-rose-200 transition"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    <span>상대방 초대 수락 상태 새로고침 🔄</span>
-                  </button>
-                </div>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-700">비밀번호</label>
+              <div className="relative">
+                <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                <input
+                  type="password"
+                  value={loginPw}
+                  onChange={e => setLoginPw(e.target.value)}
+                  placeholder="비밀번호 입력"
+                  className="w-full pl-10 pr-3.5 py-3 rounded-xl border border-slate-200 text-xs font-semibold outline-none focus:border-rose-400"
+                  required
+                />
               </div>
+            </div>
 
-              {/* Start Directly Button */}
-              <div className="text-center pt-2">
+            <button
+              type="submit"
+              disabled={loginLoading}
+              className="w-full py-3.5 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white rounded-2xl text-xs font-black shadow-md transition flex items-center justify-center gap-1.5 disabled:opacity-50 mt-2"
+            >
+              {loginLoading ? <span>불러오는 중...</span> : <span>로그인 & 내 데이터 복원하기 📦</span>}
+            </button>
+          </form>
+
+          <div className="text-center pt-2">
+            <button
+              type="button"
+              onClick={() => setViewMode('form')}
+              className="text-xs text-rose-500 hover:text-rose-700 font-bold"
+            >
+              처음이신가요? 새로 시작하기 ➔
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          3. STEP 1: INFO INPUT FORM
+      ───────────────────────────────────────────────────────────── */}
+      {viewMode === 'form' && (
+        <div className="relative z-10 w-full max-w-sm bg-white/95 backdrop-blur-xl rounded-[32px] shadow-2xl border border-rose-100 p-6 sm:p-7 space-y-5 animate-scaleUp max-h-[88vh] overflow-y-auto">
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <button
+              type="button"
+              onClick={() => setViewMode('start')}
+              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div className="text-center flex-1 pr-6">
+              <span className="text-[10px] uppercase tracking-wider font-bold text-rose-500">Step 1 of 2</span>
+              <h3 className="text-base font-black text-slate-800 tracking-tight">
+                나의 정보 입력
+              </h3>
+            </div>
+          </div>
+
+          <form onSubmit={handleProfileSubmit} className="space-y-4">
+            {/* Role Toggle */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">당신의 역할은 무엇인가요?</label>
+              <div className="grid grid-cols-2 gap-2.5">
                 <button
                   type="button"
-                  onClick={onComplete}
-                  className="w-full py-3.5 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white rounded-2xl text-xs font-black shadow-md hover:shadow-lg transition flex items-center justify-center gap-1.5"
+                  onClick={() => setRole('groom')}
+                  className={`py-3 px-3 rounded-2xl border-2 flex items-center justify-center space-x-2 text-xs font-bold transition ${
+                    role === 'groom'
+                      ? 'border-blue-500 bg-blue-50/80 text-blue-700 shadow-sm'
+                      : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'
+                  }`}
                 >
-                  <span>결혼 준비 시작하기 (메인으로 이동)</span>
-                  <ArrowRight className="w-4 h-4 text-white" />
+                  <span className="text-base">🤵</span>
+                  <span>신랑 (Groom)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setRole('bride')}
+                  className={`py-3 px-3 rounded-2xl border-2 flex items-center justify-center space-x-2 text-xs font-bold transition ${
+                    role === 'bride'
+                      ? 'border-rose-500 bg-rose-50/80 text-rose-700 shadow-sm'
+                      : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  <span className="text-base">👰</span>
+                  <span>신부 (Bride)</span>
                 </button>
               </div>
             </div>
-          )}
+
+            {/* Name Input */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">이름 (성함)</label>
+              <div className="relative">
+                <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                <input
+                  type="text"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  placeholder={role === 'groom' ? "예: 이준선 (신랑)" : "예: 김민서 (신부)"}
+                  className="w-full pl-10 pr-3.5 py-3 rounded-xl border border-slate-200 text-xs font-semibold outline-none focus:border-rose-400"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Wedding Date */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">예정된 결혼식 날짜</label>
+              <div className="relative">
+                <Calendar className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                <input
+                  type="date"
+                  value={weddingDate}
+                  onChange={e => setWeddingDate(e.target.value)}
+                  className="w-full pl-10 pr-3.5 py-3 rounded-xl border border-slate-200 text-xs font-semibold outline-none focus:border-rose-400"
+                />
+              </div>
+            </div>
+
+            {/* Submit Step 1 */}
+            <button
+              type="submit"
+              className="w-full py-3.5 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white rounded-2xl text-xs font-black shadow-md hover:shadow-lg transition flex items-center justify-center gap-1.5 mt-2"
+            >
+              <span>다음: 상대방 초대 링크 생성 ➔</span>
+            </button>
+          </form>
+
+          <div className="text-center pt-1">
+            <button
+              type="button"
+              onClick={() => setViewMode('login')}
+              className="text-xs text-slate-400 hover:text-slate-600 font-medium"
+            >
+              이미 계정이 있으신가요? <span className="text-rose-500 font-bold underline">로그인하기</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          4. STEP 2: COUPLE INVITE LINK & WAITING
+      ───────────────────────────────────────────────────────────── */}
+      {viewMode === 'invite' && (
+        <div className="relative z-10 w-full max-w-sm bg-white/95 backdrop-blur-xl rounded-[32px] shadow-2xl border border-rose-100 p-6 sm:p-7 space-y-5 animate-scaleUp max-h-[88vh] overflow-y-auto">
+          {/* Header */}
+          <div className="text-center space-y-1 border-b border-slate-100 pb-3">
+            <span className="text-[10px] uppercase tracking-wider font-bold text-rose-500">Step 2 of 2</span>
+            <h3 className="text-base font-black text-slate-800 tracking-tight">
+              {name}님, 환영합니다! 🎉
+            </h3>
+            <p className="text-xs text-slate-500">
+              상대방에게 초대 링크를 보내면 실시간 커플 연동이 시작됩니다.
+            </p>
+          </div>
+
+          {/* Action Card */}
+          <div className="p-4 rounded-2xl bg-rose-50/70 border border-rose-100 space-y-3 text-center">
+            <div className="text-xs font-bold text-rose-900 flex items-center justify-between">
+              <span>💌 커플 초대 링크 보내기</span>
+              <span className="text-[10px] text-rose-500 font-normal">원클릭 실시간 연동</span>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed text-left">
+              카카오톡이나 문자로 초대장을 보내면, 상대방이 링크를 누르는 즉시 두 분의 폰이 실시간으로 연결됩니다!
+            </p>
+
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleShare}
+                className="py-3 px-3 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-2xl text-xs font-black flex items-center justify-center gap-1.5 shadow-sm active:scale-98 transition"
+              >
+                <Send className="w-4 h-4 text-slate-950" />
+                <span>카톡/문자 초대장</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className="py-3 px-3 bg-slate-900 hover:bg-black text-white rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm active:scale-98 transition"
+              >
+                {isLinkCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Link className="w-4 h-4" />}
+                <span>{isLinkCopied ? '링크 복사됨' : '초대링크 복사'}</span>
+              </button>
+            </div>
+
+            {/* Live Waiting Status */}
+            <div className="p-3.5 rounded-xl bg-white/90 border border-rose-200 space-y-2.5 shadow-xs text-left mt-2">
+              <div className="flex items-start space-x-2.5">
+                <div className="w-2 h-2 rounded-full bg-rose-500 mt-1 flex-shrink-0 animate-ping" />
+                <div className="text-[11px] text-slate-600 leading-relaxed">
+                  <span className="font-bold text-rose-700 block">
+                    상대방의 초대 수락을 실시간 대기 중입니다 💕
+                  </span>
+                  상대방이 링크를 열고 성함을 입력하면 즉시 자동으로 연동되어 메인 화면으로 이동합니다.
+                </div>
+              </div>
+
+              {/* Manual Refresh Status Button */}
+              <button
+                type="button"
+                onClick={async () => {
+                  const connected = await checkPairingStatusNow();
+                  if (connected) {
+                    alert('🎉 상대방과 연동이 확인되었습니다! 메인 화면으로 이동합니다. 💕');
+                    onComplete();
+                  } else {
+                    alert('아직 상대방이 초대를 수락하지 않았습니다.\n상대방에게 링크를 전송한 후 다시 확인해주세요.');
+                  }
+                }}
+                className="w-full py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border border-rose-200 transition"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>상대방 초대 수락 상태 새로고침 🔄</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Start Directly Button */}
+          <div className="text-center pt-1">
+            <button
+              type="button"
+              onClick={onComplete}
+              className="w-full py-3.5 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white rounded-2xl text-xs font-black shadow-md transition flex items-center justify-center gap-1.5"
+            >
+              <span>결혼 준비 시작하기 (메인으로 이동)</span>
+              <ArrowRight className="w-4 h-4 text-white" />
+            </button>
+          </div>
         </div>
       )}
     </div>
